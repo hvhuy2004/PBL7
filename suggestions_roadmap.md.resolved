@@ -1,0 +1,73 @@
+# Gợi ý Phát triển Tính năng cho AgileAI (Roadmap)
+
+Chào bạn, dựa trên **Đề cương Chi tiết Đồ án Tốt nghiệp** của bạn và việc tham khảo các hệ thống thực tế như Trello/Jira, dự án của bạn có tiềm năng mở rộng rất lớn. Việc thanh menu bên trái hiện tại chỉ có "Dự án" và "Việc của tôi" quả thật làm hệ thống trông hơi "trống trải".
+
+Dưới đây là danh sách các tính năng (từ cơ bản đến nâng cao) và đặc biệt là các **tính năng AI bắt buộc theo đề cương** để bạn tham khảo đưa vào hệ thống, giúp đồ án trở nên đồ sộ và thuyết phục hơn trước hội đồng:
+
+---
+
+## 1. Mở rộng Thanh Menu & Tính năng Cơ bản (Trello-like)
+
+Để hệ thống ra dáng một phần mềm quản lý chuyên nghiệp, bạn có thể thêm các module sau vào Sidebar/Menu:
+
+- **📊 Dashboard / Tổng quan (Bắt buộc theo đề cương):** 
+  - Giao diện đầu tiên khi đăng nhập.
+  - Hiển thị các biểu đồ (Pie chart, Bar chart) thống kê tiến độ dán, số task hoàn thành vs chưa hoàn thành.
+  - Phân tích hiệu suất của từng thành viên (Burn-down chart).
+- **📅 Lịch trình (Calendar View):**
+  - Hiển thị các Task lên một bộ lịch (Calendar) dựa vào `start_date` và `due_date`.
+  - Giúp quản lý dễ dàng nhìn thấy deadline trong tháng.
+- **⏱️ Bảng Chấm công / Time Tracking:**
+  - Tích hợp bộ đếm giờ (Timer) vào mỗi Task. Khi bắt đầu làm thì bấm "Start", xong bấm "Stop".
+  - Thống kê thời gian thực tế (`logged_hours`) so với thời gian dự kiến (`estimated_hours`).
+- **🔔 Trung tâm Thông báo (Notification Center):**
+  - Màn hình riêng để xem lại lịch sử thông báo (Ai đó tag bạn, Task sắp tới hạn, Có người chuyển cột task của bạn...).
+- **👥 Danh bạ Thành viên (Workspace/Team):**
+  - Quản lý danh sách thành viên trong toàn bộ hệ thống (dành cho Admin) hoặc trong tổ chức/công ty.
+
+---
+
+## 2. Các Tính năng Quản lý Tác vụ Nâng cao
+
+Bên trong trang chi tiết Project (BoardPage), bạn có thể bổ sung các công cụ sau:
+
+- **Bộ lọc & Nhóm (Filter & Grouping) mạnh mẽ:**
+  - Lọc task theo: Người được giao, Độ ưu tiên, Nhãn (Tags), hoặc Deadline.
+  - Gom nhóm (Group by): Nhóm các task theo Assignee thay vì theo Cột (Swimlanes giống Jira).
+- **Tệp đính kèm & Thảo luận (Attachments & Comments):**
+  - Cho phép upload file (hình ảnh, tài liệu) trực tiếp vào Task.
+  - Khung chat/bình luận bên dưới mỗi task để team trao đổi (@mention để nhắc tên nhau).
+- **Sub-tasks (Công việc con):**
+  - Thay vì chỉ dùng Checklist đơn giản, cho phép tạo Sub-task (mỗi sub-task lại là 1 card nhỏ có Assignee và Deadline riêng).
+- **Activity Log (Lịch sử hoạt động):**
+  - Theo dõi mọi thay đổi của Task: *Huy đã chuyển task từ To Do sang In Progress lúc 10:00 AM*.
+
+---
+
+## 3. Hoàn thiện các Tính năng AI (Giá trị cốt lõi của Đồ án)
+
+Đây là phần **ăn điểm nhất** trong đề cương của bạn. Bạn cần làm nổi bật chúng lên giao diện để giám khảo dễ dàng thấy sự khác biệt so với các website clone Trello thông thường:
+
+> [!IMPORTANT]
+> **Prompt-to-Task (Dùng LLM API)**
+> Bạn cần một thanh input hoặc một Chatbot (Trợ lý AI) ở góc màn hình. Thay vì phải điền form tạo Task dài dòng, người dùng chỉ cần gõ/nói: *"Tạo cho tôi một task lỗi đăng nhập do Huy phụ trách, hạn chót thứ 6 tuần này"*. AI sẽ tự động phân tích câu văn và điền sẵn các trường tương ứng để tạo Task.
+
+> [!TIP]
+> **Semantic Search & Chống Trùng Lặp (LLM Embedding)**
+> Khi người dùng chuẩn bị bấm "Lưu" để tạo 1 Task mới, hệ thống sẽ ngầm gọi API nhúng (Embedding) để so sánh vector với các task cũ. Nếu độ tương đồng (Cosine Similarity) > 85%, hệ thống sẽ hiện cảnh báo popup: *"Có vẻ task này đã tồn tại (Task #123: Fix lỗi login), bạn có chắc muốn tạo mới không?"*.
+
+> [!NOTE]
+> **Tự động Phân loại & Gắn Nhãn (Sử dụng ML Models)**
+> Theo đề cương, bạn dùng SVM/Random Forest/Naive Bayes.
+> Hãy làm một tính năng: Khi người dùng gõ xong mô tả (Description), nhấn nút **"✨ AI Phân loại"**. Hệ thống sẽ gọi mô hình ML tự train của bạn để dự đoán xem đây là **Bug hay Feature**, mức độ ưu tiên là **High hay Low**, và tự động set màu Nhãn cho Task đó.
+
+---
+
+## Kế hoạch Đề xuất Trước Mắt (Action Plan)
+
+Nếu bạn đồng ý, chúng ta có thể triển khai dần các tính năng trên theo thứ tự ưu tiên:
+1. **Làm giao diện Dashboard Thống kê (Charts):** Rất dễ làm, thêm vào menu bên trái ngay lập tức làm app xịn lên rất nhiều.
+2. **Làm tính năng Comment & Activity Log trong Task:** Tăng tính tương tác nhóm.
+3. **Làm tính năng Cảnh báo Task trùng lặp bằng AI:** Hoàn thiện nốt cam kết trong đề cương.
+
+Bạn thấy hứng thú với tính năng nào nhất? Chúng ta có thể bắt đầu code luôn tính năng đó!

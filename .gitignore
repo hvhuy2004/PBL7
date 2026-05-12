@@ -1,0 +1,30 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node / Vite
+node_modules/
+dist/
+dist-ssr/
+
+# Environment files
+.env
+*.local
+BE/.env
+
+# Runtime uploads and logs
+BE/uploads/
+*.log
+
+# Local scratch files
+BE/scratch_alter.py
+BE/app/schemas_updates.txt
+
+# Editor / OS
+.idea/
+.vscode/
+.cursor/
+.DS_Store
+Thumbs.db
