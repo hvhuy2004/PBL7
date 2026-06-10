@@ -74,7 +74,7 @@ export default function MembersPage() {
           <div className="empty-state">
             <div style={{ color: 'var(--text-muted)', marginBottom: 12 }}><Users size={52} strokeWidth={1.2} /></div>
             <h3>Chưa có dữ liệu thành viên</h3>
-            <p>Bạn chưa tham gia project nào</p>
+            <p>Bạn chưa tham gia dự án nào</p>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -109,7 +109,7 @@ export default function MembersPage() {
                           }}>
                             <div style={{
                               width: 36, height: 36, borderRadius: '50%',
-                              background: 'linear-gradient(135deg, var(--accent), var(--purple))',
+                              background: '#6b7ff2',
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                               fontSize: 13, fontWeight: 700, color: 'white', flexShrink: 0,
                             }}>
@@ -124,8 +124,15 @@ export default function MembersPage() {
                                 {m.user?.email}
                               </div>
                             </div>
-                            <div style={{ padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 700, background: roleStyle.bg, color: roleStyle.color, flexShrink: 0 }}>
-                              {m.project_role}
+                            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                              <div style={{ padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 700, background: roleStyle.bg, color: roleStyle.color, flexShrink: 0 }}>
+                                {m.project_role}
+                              </div>
+                              {m.can_manage_tasks && m.project_role !== 'manager' && (
+                                <div style={{ padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 700, background: 'rgba(37,99,235,0.12)', color: 'var(--accent)', flexShrink: 0 }}>
+                                  Điều phối công việc
+                                </div>
+                              )}
                             </div>
                           </div>
                         );

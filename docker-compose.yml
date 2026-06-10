@@ -1,0 +1,55 @@
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: agile_ai_management
+      MYSQL_USER: agileai
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in the root .env file}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in the root .env file}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./BE
+    restart: unless-stopped
+    env_file:
+      - ./BE/.env
+    environment:
+      APP_ENV: production
+      DATABASE_URL: mysql+pymysql://agileai:${MYSQL_PASSWORD}@mysql:3306/agile_ai_management
+      CORS_ORIGINS: ${APP_ORIGIN:-http://localhost}
+      AUTO_CREATE_SCHEMA: ${AUTO_CREATE_SCHEMA:-true}
+      AUTO_SYNC_SCHEMA: ${AUTO_SYNC_SCHEMA:-true}
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./FE
+      args:
+        VITE_API_BASE: /api
+        VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
+  uploads_data:

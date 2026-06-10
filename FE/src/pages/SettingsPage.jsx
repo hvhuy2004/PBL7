@@ -57,13 +57,13 @@ export default function SettingsPage() {
         <div className="topbar-title">Cài đặt tài khoản</div>
       </div>
 
-      <div className="page" style={{ maxWidth: 600 }}>
+      <div className="page page-wide">
 
         {/* Avatar + info */}
-        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 20 }}>
+        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 20, maxWidth: 980 }}>
           <div style={{
             width: 64, height: 64, borderRadius: '50%',
-            background: 'linear-gradient(135deg, var(--accent), var(--purple))',
+            background: '#6b7ff2',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 22, fontWeight: 700, color: 'white', flexShrink: 0,
           }}>
@@ -81,7 +81,7 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Thông tin cá nhân ── */}
-        <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card" style={{ marginBottom: 20, maxWidth: 980 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, fontSize: 15, fontWeight: 700 }}>
             <User size={16} color="var(--accent)" /> Thông tin cá nhân
           </div>
@@ -109,7 +109,7 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Đổi mật khẩu ── */}
-        <div className="card">
+        <div className="card" style={{ maxWidth: 980 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, fontSize: 15, fontWeight: 700 }}>
             <Lock size={16} color="var(--accent)" /> Đổi mật khẩu
           </div>

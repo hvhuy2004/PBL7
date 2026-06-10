@@ -11,6 +11,12 @@ function getNotifIcon(title = '') {
   return <Info size={16} color="var(--text-muted)" />;
 }
 
+function displayNotificationText(value = '') {
+  return String(value || '')
+    .replace(/\bTask\b/g, 'Công việc')
+    .replace(/\btask\b/g, 'công việc');
+}
+
 function groupByDate(notifications) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -58,12 +64,12 @@ function NotifGroup({ label, items, onRead, onNavigate }) {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0,
             }}>
-              {getNotifIcon(n.title)}
+              {getNotifIcon(displayNotificationText(n.title))}
             </div>
 
             <div>
-              <div style={{ fontSize: 14, fontWeight: n.is_read ? 500 : 700, marginBottom: 3 }}>{n.title}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4, lineHeight: 1.4 }}>{n.content}</div>
+              <div style={{ fontSize: 14, fontWeight: n.is_read ? 500 : 700, marginBottom: 3 }}>{displayNotificationText(n.title)}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4, lineHeight: 1.4 }}>{displayNotificationText(n.content)}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text-muted)' }}>
                 <Clock size={10} />
                 {new Date(n.created_at).toLocaleString('vi-VN')}
@@ -149,7 +155,7 @@ export default function NotificationsPage() {
         )}
       </div>
 
-      <div className="page">
+      <div className="page page-wide">
         {loading ? (
           <div className="loading"><div className="spinner" /></div>
         ) : notifications.length === 0 ? (
@@ -161,7 +167,7 @@ export default function NotificationsPage() {
             <p>Bạn chưa có thông báo nào</p>
           </div>
         ) : (
-          <div style={{ maxWidth: 720 }}>
+          <div style={{ maxWidth: 1120 }}>
             <NotifGroup label="Hôm nay"    items={groups.today}     onRead={markRead} onNavigate={handleClick} />
             <NotifGroup label="Hôm qua"    items={groups.yesterday} onRead={markRead} onNavigate={handleClick} />
             <NotifGroup label="Cũ hơn"     items={groups.older}     onRead={markRead} onNavigate={handleClick} />

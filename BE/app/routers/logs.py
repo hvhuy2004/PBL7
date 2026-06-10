@@ -1,24 +1,40 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from typing import List, Optional
-from app import schemas, models
-from app.database import get_db
+from sqlalchemy.orm import Session
+
+from app import models
 from app.core.deps import require_project_member
+from app.database import get_db
 
 router = APIRouter(prefix="/logs", tags=["Activity Logs"])
 
 
 ACTION_LABELS = {
-    "CREATED_TASK":          "đã tạo task",
-    "UPDATED_TASK":          "đã cập nhật task",
-    "DELETED_TASK":          "đã xóa task",
-    "RESTORED_TASK":         "đã khôi phục task",
-    "MOVED_TASK":            "đã chuyển task",
-    "ADDED_COMMENT":         "đã bình luận vào task",
-    "ADDED_CHECKLIST_ITEM":  "đã thêm checklist vào task",
-    "UPDATED_CHECKLIST_ITEM":"đã cập nhật checklist",
-    "DELETED_CHECKLIST_ITEM":"đã xóa checklist",
+    "CREATED_TASK": "đã tạo task",
+    "UPDATED_TASK": "đã cập nhật task",
+    "DELETED_TASK": "đã xóa task",
+    "RESTORED_TASK": "đã khôi phục task",
+    "MOVED_TASK": "đã chuyển task",
+    "ADDED_COMMENT": "đã bình luận vào task",
+    "ADDED_CHECKLIST_ITEM": "đã thêm checklist vào task",
+    "UPDATED_CHECKLIST_ITEM": "đã cập nhật checklist",
+    "DELETED_CHECKLIST_ITEM": "đã xóa checklist",
+    "POSTED_PROJECT_MESSAGE": "đã gửi tin nhắn dự án",
+    "DELETED_PROJECT_MESSAGE": "đã xóa tin nhắn dự án",
+}
+
+TASK_ACTIONS = {
+    "CREATED_TASK",
+    "UPDATED_TASK",
+    "DELETED_TASK",
+    "RESTORED_TASK",
+    "MOVED_TASK",
+    "ADDED_COMMENT",
+    "ADDED_CHECKLIST_ITEM",
+    "UPDATED_CHECKLIST_ITEM",
+    "DELETED_CHECKLIST_ITEM",
 }
 
 
@@ -28,34 +44,27 @@ def get_project_logs(
     task_id: Optional[int] = Query(None, description="Lọc log theo task cụ thể"),
     limit: int = Query(100, le=200),
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(require_project_member)
+    current_user: models.User = Depends(require_project_member),
 ):
-    """(Thành viên) Lấy activity log của project, hỗ trợ lọc theo task"""
-    q = db.query(models.ActivityLog).filter(
-        models.ActivityLog.project_id == project_id
-    )
+    q = db.query(models.ActivityLog).filter(models.ActivityLog.project_id == project_id)
     if task_id:
         q = q.filter(models.ActivityLog.entity_id == task_id)
 
     logs = q.order_by(desc(models.ActivityLog.created_at)).limit(limit).all()
-
     result = []
+
     for log in logs:
-        # Lookup user name
         user = db.query(models.User).filter(models.User.id == log.user_id).first()
         user_name = user.full_name if user else f"User #{log.user_id}"
 
-        # Lookup task title (entity_id = task_id for task-related actions)
         task_title = None
-        if log.action_type in ACTION_LABELS:
+        if log.action_type in TASK_ACTIONS:
             task = db.query(models.Task).filter(models.Task.id == log.entity_id).first()
             task_title = task.title if task else f"Task #{log.entity_id}"
 
-        # Build human-readable description
         action_label = ACTION_LABELS.get(log.action_type, log.action_type)
         try:
             if log.action_type == "MOVED_TASK" and log.old_value and log.new_value:
-                # old_value = old column_id, new_value = new column_id (stored as strings)
                 old_col_id = int(log.old_value) if log.old_value.isdigit() else None
                 new_col_id = int(log.new_value) if log.new_value.isdigit() else None
                 old_col = db.query(models.BoardColumn).filter(models.BoardColumn.id == old_col_id).first() if old_col_id else None

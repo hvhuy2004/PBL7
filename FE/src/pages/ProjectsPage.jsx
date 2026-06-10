@@ -8,13 +8,19 @@ import {
 import { useToast, ToastContainer } from '../hooks/useToast';
 import ArchivedProjectsModal from '../components/ArchivedProjectsModal';
 
-const PROJECT_COLORS = ['#4f8ef7', '#a78bfa', '#3fb950', '#f0883e', '#f85149', '#d29922'];
 const PROJECT_ICONS = [Layers, Activity, FolderOpen, CheckCircle2, Layers, Activity];
 
-function getColor(id) { return PROJECT_COLORS[id % PROJECT_COLORS.length]; }
+function getProjectColor(project) {
+  return project?.color || '#4f8ef7';
+}
+
 function getProjectIcon(id) {
   const Icon = PROJECT_ICONS[id % PROJECT_ICONS.length];
   return <Icon size={17} strokeWidth={2} />;
+}
+
+function displayDemoText(value = '') {
+  return String(value || '').replace(/\b[Tt]ask\b/g, (word) => (word[0] === 'T' ? 'Công việc' : 'công việc'));
 }
 
 // ─── Modals ──────────────────────────────────────────────────────────────────
@@ -35,7 +41,11 @@ function CreateProjectModal({ onClose, onCreated }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name.trim()) { setError('Tên project không được để trống'); return; }
+    if (!form.name.trim()) { setError('Tên dự án không được để trống'); return; }
+    if (form.start_date && form.end_date && new Date(form.start_date) > new Date(form.end_date)) {
+      setError('Ngày bắt đầu không được sau ngày kết thúc');
+      return;
+    }
     setLoading(true);
     try {
       const payload = {
@@ -47,7 +57,7 @@ function CreateProjectModal({ onClose, onCreated }) {
       onCreated(data);
       onClose();
     } catch (err) {
-      setError(err.response?.data?.detail || 'Tạo project thất bại');
+      setError(err.response?.data?.detail || 'Tạo dự án thất bại');
     } finally { setLoading(false); }
   };
 
@@ -55,11 +65,11 @@ function CreateProjectModal({ onClose, onCreated }) {
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <div className="modal-title">Tạo Project mới</div>
+          <div className="modal-title">Tạo dự án mới</div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
         <div className="modal-subtitle">
-          Project sẽ được tạo tự động với Kanban board và 3 cột mặc định
+          Dự án sẽ được tạo tự động với Kanban board và 5 cột mặc định
         </div>
 
         {error && (
@@ -74,7 +84,7 @@ function CreateProjectModal({ onClose, onCreated }) {
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label className="form-label">Tên Project *</label>
+            <label className="form-label">Tên dự án *</label>
             <input
               id="project-name-input"
               className="form-input"
@@ -86,7 +96,7 @@ function CreateProjectModal({ onClose, onCreated }) {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="form-group">
-              <label className="form-label">Mã project (tuỳ chọn)</label>
+              <label className="form-label">Mã dự án (tuỳ chọn)</label>
               <input
                 className="form-input"
                 placeholder="VD: PM"
@@ -95,7 +105,7 @@ function CreateProjectModal({ onClose, onCreated }) {
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Màu</label>
+              <label className="form-label">Màu nhận diện</label>
               <input
                 type="color"
                 className="form-input"
@@ -103,6 +113,9 @@ function CreateProjectModal({ onClose, onCreated }) {
                 onChange={e => setForm(p => ({ ...p, color: e.target.value }))}
                 style={{ padding: 4, height: 40 }}
               />
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>
+                Màu nhận diện chỉ dùng để phân biệt thẻ dự án trên danh sách.
+              </div>
             </div>
           </div>
           <div className="form-group">
@@ -110,7 +123,7 @@ function CreateProjectModal({ onClose, onCreated }) {
             <textarea
               id="project-desc-input"
               className="form-input"
-              placeholder="Mô tả ngắn về project..."
+              placeholder="Mô tả ngắn về dự án..."
               value={form.description}
               onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
             />
@@ -139,13 +152,13 @@ function CreateProjectModal({ onClose, onCreated }) {
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
             <input type="checkbox" checked={form.is_starred} onChange={e => setForm(p => ({ ...p, is_starred: e.target.checked }))} />
-            Ghim project ưu tiên
+            Ghim dự án ưu tiên
           </label>
           <div className="modal-footer">
             <button type="button" className="btn btn-ghost" onClick={onClose}>Hủy</button>
             <button id="btn-create-project-submit" type="submit" className="btn btn-primary" disabled={loading}>
               <Plus size={15} />
-              {loading ? 'Đang tạo...' : 'Tạo Project'}
+            {loading ? 'Đang tạo...' : 'Tạo dự án'}
             </button>
           </div>
         </form>
@@ -170,6 +183,14 @@ function EditProjectModal({ project, onClose, onUpdated, onError }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!form.name.trim()) {
+      onError?.('Tên dự án không được để trống');
+      return;
+    }
+    if (form.start_date && form.end_date && new Date(form.start_date) > new Date(form.end_date)) {
+      onError?.('Ngày bắt đầu không được sau ngày kết thúc');
+      return;
+    }
     setLoading(true);
     try {
       const payload = {
@@ -183,8 +204,8 @@ function EditProjectModal({ project, onClose, onUpdated, onError }) {
     } catch (err) {
       const detail = err.response?.data?.detail;
       const message = err.response?.status === 403
-        ? 'Bạn không có quyền chỉnh sửa project này.'
-        : detail || 'Cập nhật project thất bại';
+        ? 'Bạn không có quyền chỉnh sửa dự án này.'
+        : detail || 'Cập nhật dự án thất bại';
       onError?.(message);
     } finally { setLoading(false); }
   };
@@ -195,23 +216,26 @@ function EditProjectModal({ project, onClose, onUpdated, onError }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Edit3 size={16} color="var(--accent)" />
-            <div className="modal-title" style={{ marginBottom: 0 }}>Chỉnh sửa Project</div>
+            <div className="modal-title" style={{ marginBottom: 0 }}>Chỉnh sửa dự án</div>
           </div>
           <button className="btn-icon" onClick={onClose}><X size={16} /></button>
         </div>
         <form onSubmit={handleSubmit} style={{ marginTop: 16 }}>
           <div className="form-group">
-            <label className="form-label">Tên Project</label>
+            <label className="form-label">Tên dự án</label>
             <input className="form-input" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="form-group">
-              <label className="form-label">Mã project</label>
+              <label className="form-label">Mã dự án</label>
               <input className="form-input" value={form.project_key} onChange={e => setForm(p => ({ ...p, project_key: e.target.value }))} />
             </div>
             <div className="form-group">
-              <label className="form-label">Màu</label>
+              <label className="form-label">Màu nhận diện</label>
               <input type="color" className="form-input" value={form.color} onChange={e => setForm(p => ({ ...p, color: e.target.value }))} style={{ padding: 4, height: 40 }} />
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>
+                Màu nhận diện chỉ dùng để phân biệt thẻ dự án trên danh sách.
+              </div>
             </div>
           </div>
           <div className="form-group">
@@ -239,7 +263,7 @@ function EditProjectModal({ project, onClose, onUpdated, onError }) {
           <div style={{ display: 'flex', gap: 14, marginTop: 4, marginBottom: 8 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
               <input type="checkbox" checked={form.is_starred} onChange={e => setForm(p => ({ ...p, is_starred: e.target.checked }))} />
-              Ghim project
+              Ghim dự án
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
               <input type="checkbox" checked={form.is_archived} onChange={e => setForm(p => ({ ...p, is_archived: e.target.checked }))} />
@@ -275,7 +299,7 @@ export default function ProjectsPage() {
   useEffect(() => {
     api.get('/projects/me')
       .then(r => setProjects(r.data || []))
-      .catch(() => addToast('Không tải được danh sách project', 'error'))
+      .catch(() => addToast('Không tải được danh sách dự án', 'error'))
       .finally(() => setLoading(false));
 
     const close = () => setMenuOpen(null);
@@ -287,7 +311,7 @@ export default function ProjectsPage() {
     try {
       await api.delete(`/projects/${id}`);
       setProjects(p => p.filter(x => x.id !== id));
-      addToast('Đã xóa project', 'success');
+      addToast('Đã xóa dự án', 'success');
     } catch (err) {
       addToast(err.response?.data?.detail || 'Xóa thất bại', 'error');
     } finally {
@@ -310,14 +334,14 @@ export default function ProjectsPage() {
     <>
       <div className="topbar">
         <div className="topbar-title">
-          Projects
-          <span className="topbar-subtitle">{projects.length} project</span>
+          Dự án
+          <span className="topbar-subtitle">{projects.length} dự án</span>
         </div>
         <div className="search-bar">
           <Search size={14} style={{ color: 'var(--text-muted)' }} />
           <input
             id="project-search"
-            placeholder="Tìm kiếm project..."
+            placeholder="Tìm kiếm dự án..."
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -326,7 +350,7 @@ export default function ProjectsPage() {
           <Archive size={15} /> Thùng rác
         </button>
         <button id="btn-new-project" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-          <Plus size={15} /> Tạo Project
+          <Plus size={15} /> Tạo dự án
         </button>
       </div>
 
@@ -338,11 +362,11 @@ export default function ProjectsPage() {
             <div style={{ color: 'var(--text-muted)', marginBottom: 12 }}>
               <FolderOpen size={52} strokeWidth={1.2} />
             </div>
-            <h3>{search ? 'Không tìm thấy project' : 'Chưa có project nào'}</h3>
-            <p>{search ? 'Thử tìm với từ khóa khác' : 'Nhấn "Tạo Project" để bắt đầu!'}</p>
+            <h3>{search ? 'Không tìm thấy dự án' : 'Chưa có dự án nào'}</h3>
+            <p>{search ? 'Thử tìm với từ khóa khác' : 'Nhấn "Tạo dự án" để bắt đầu!'}</p>
             {!search && (
               <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => setShowCreate(true)}>
-                <Plus size={15} /> Tạo Project mới
+                <Plus size={15} /> Tạo dự án mới
               </button>
             )}
           </div>
@@ -355,24 +379,17 @@ export default function ProjectsPage() {
                 onClick={() => navigate(`/projects/${p.id}`)}
                 style={{ cursor: 'pointer' }}
               >
-                {/* Gradient top border */}
-                <div style={{
-                  position: 'absolute', top: 0, left: 0, right: 0, height: 3,
-                  background: `linear-gradient(90deg, ${getColor(p.id)}, ${PROJECT_COLORS[(p.id + 2) % PROJECT_COLORS.length]})`,
-                  borderRadius: '16px 16px 0 0',
-                }} />
-
                 <div className="project-header">
-                  {/* Icon box — Lucide icons, no emoji */}
+                  {/* Icon box */}
                   <div className="project-icon" style={{
-                    background: `${getColor(p.id)}18`,
-                    color: getColor(p.id),
+                    background: `${getProjectColor(p)}18`,
+                    color: getProjectColor(p),
                   }}>
                     {getProjectIcon(p.id)}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="project-name">{p.name}</div>
-                    <div className="project-desc">{p.description || 'Chưa có mô tả'}</div>
+                    <div className="project-desc">{displayDemoText(p.description) || 'Chưa có mô tả'}</div>
                   </div>
 
                   {/* Context menu */}
@@ -420,7 +437,7 @@ export default function ProjectsPage() {
                             style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 'none', color: 'var(--red)', fontSize: 13, cursor: 'pointer' }}
                             onClick={(e) => { e.stopPropagation(); setConfirmProject(p.id); }}
                           >
-                            <Trash2 size={13} /> Xóa project
+                            <Trash2 size={13} /> Xóa dự án
                           </button>
                         )}
                       </div>
@@ -431,6 +448,13 @@ export default function ProjectsPage() {
                 <div className="project-meta">
                   <span className={`badge ${statusClass(p.status)}`}>
                     {statusLabel(p.status)}
+                  </span>
+                  <span
+                    title="Màu nhận diện dự án"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-muted)' }}
+                  >
+                    <span className="ops-color-dot" style={{ background: getProjectColor(p) }} />
+                    Màu nhận diện
                   </span>
                   <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 3 }}>
                     <Clock size={10} />
@@ -446,7 +470,7 @@ export default function ProjectsPage() {
       {showCreate && (
         <CreateProjectModal
           onClose={() => setShowCreate(false)}
-          onCreated={p => { setProjects(prev => [p, ...prev]); addToast('Tạo project thành công!'); }}
+          onCreated={p => { setProjects(prev => [p, ...prev]); addToast('Tạo dự án thành công!'); }}
         />
       )}
       {editProject && (

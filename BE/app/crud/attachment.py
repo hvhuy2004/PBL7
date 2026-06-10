@@ -38,11 +38,11 @@ def get_task_attachments(db: Session, task_id: int) -> list[models.Attachment]:
     return db.query(models.Attachment).filter(models.Attachment.task_id == task_id).all()
 
 
-def delete_attachment(db: Session, attachment_id: int, user_id: int) -> None:
+def delete_attachment(db: Session, attachment_id: int, user_id: int, allow_manager: bool = False) -> None:
     attachment = db.query(models.Attachment).filter(models.Attachment.id == attachment_id).first()
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")
-    if attachment.uploader_id != user_id:
+    if attachment.uploader_id != user_id and not allow_manager:
         raise HTTPException(status_code=403, detail="You can only delete your own attachments")
 
     file_path = os.path.join(UPLOAD_DIR, os.path.basename(attachment.file_url))

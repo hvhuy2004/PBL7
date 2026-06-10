@@ -62,7 +62,7 @@ def create_column(db: Session, board_id: int, data: schemas.BoardColumnCreate) -
         name=data.name,
         order_index=data.order_index,
         color=data.color,
-        wip_limit=data.wip_limit,
+        wip_limit=data.wip_limit if data.wip_limit is not None else 20,
         is_done=bool(data.is_done),
     )
     db.add(col)

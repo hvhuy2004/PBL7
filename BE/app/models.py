@@ -11,7 +11,9 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     full_name = Column(String(100), nullable=False)
     email = Column(String(100), unique=True, nullable=False, index=True)
-    password_hash = Column(String(255), nullable=False)
+    password_hash = Column(String(255), nullable=True)
+    google_sub = Column(String(100), unique=True, nullable=True, index=True)
+    auth_provider = Column(String(20), default='password')
     role = Column(Enum('admin', 'user', name="user_roles"), default='user')
     avatar_url = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -20,6 +22,7 @@ class User(Base):
     workspaces = relationship("Workspace", back_populates="owner", cascade="all, delete")
     comments = relationship("Comment", back_populates="user", cascade="all, delete")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete")
+    project_messages = relationship("ProjectMessage", back_populates="user", cascade="all, delete")
 
 # Bảng Workspaces
 class Workspace(Base):
@@ -60,6 +63,7 @@ class Project(Base):
     members = relationship("ProjectMember", back_populates="project", cascade="all, delete")
     boards = relationship("Board", back_populates="project", cascade="all, delete")
     tags = relationship("Tag", back_populates="project", cascade="all, delete")
+    messages = relationship("ProjectMessage", back_populates="project", cascade="all, delete")
 
 # Bảng Project_Members
 class ProjectMember(Base):
@@ -68,6 +72,7 @@ class ProjectMember(Base):
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     project_role = Column(Enum('manager', 'developer', 'tester', name="member_roles"), default='developer')
+    can_manage_tasks = Column(Boolean, default=False)
     joined_at = Column(DateTime, default=datetime.utcnow)
 
     # Quan hệ
@@ -174,6 +179,21 @@ class Comment(Base):
 
     user = relationship("User", back_populates="comments")
     task = relationship("Task", back_populates="comments")
+
+# Bang Project_Messages
+class ProjectMessage(Base):
+    __tablename__ = "project_messages"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at = Column(DateTime, nullable=True, default=None)
+
+    project = relationship("Project", back_populates="messages")
+    user = relationship("User", back_populates="project_messages")
 
 # Bảng Attachments
 class Attachment(Base):

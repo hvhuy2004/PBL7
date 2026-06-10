@@ -16,11 +16,23 @@ BE/.env
 
 # Runtime uploads and logs
 BE/uploads/
+uploads/
+BE/backups/
+BE/.ai_usage.json
+.codex-runlogs/
 *.log
+
+# Local utility scripts
+/get_users.py
+/BE/get_users.py
 
 # Local scratch files
 BE/scratch_alter.py
 BE/app/schemas_updates.txt
+/test_ai_direct.py
+/test_backend_direct.py
+/test_dup.py
+/test_gemini.py
 
 # Editor / OS
 .idea/

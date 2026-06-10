@@ -1,10 +1,11 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard, FolderKanban, CheckSquare,
   Bell, Settings, LogOut, Users, Layers, CalendarDays,
+  BarChart3, History, Tags, Archive, MessageSquare, ShieldCheck,
 } from 'lucide-react';
 import api from '../api';
 
@@ -12,10 +13,10 @@ function SidebarLogo() {
   return (
     <div style={{
       width: 32, height: 32,
-      background: 'linear-gradient(135deg, #4f8ef7, #a78bfa)',
+      background: '#4f8ef7',
       borderRadius: 8,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      boxShadow: '0 0 14px rgba(79,142,247,0.4)',
+      boxShadow: 'none',
       flexShrink: 0,
     }}>
       <Layers size={17} color="white" strokeWidth={2} />
@@ -28,6 +29,8 @@ export default function Sidebar() {
   const location = useLocation();
   const { user, logout } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const menuRef = useRef(null);
 
   // Poll unread notification count
   useEffect(() => {
@@ -45,6 +48,17 @@ export default function Sidebar() {
   useEffect(() => {
     if (location.pathname === '/notifications') setUnreadCount(0);
   }, [location.pathname]);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setShowUserMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const navItems = [
     {
@@ -80,6 +94,34 @@ export default function Sidebar() {
         new URLSearchParams(loc.search).get('view') === 'calendar',
     },
     {
+      id: 'reports',
+      icon: BarChart3,
+      label: 'Báo cáo',
+      to: { pathname: '/reports' },
+      match: (loc) => loc.pathname.startsWith('/reports'),
+    },
+    {
+      id: 'activity',
+      icon: History,
+      label: 'Hoạt động',
+      to: { pathname: '/activity' },
+      match: (loc) => loc.pathname.startsWith('/activity'),
+    },
+    {
+      id: 'messages',
+      icon: MessageSquare,
+      label: 'Trao đổi',
+      to: { pathname: '/messages' },
+      match: (loc) => loc.pathname.startsWith('/messages'),
+    },
+    {
+      id: 'tags',
+      icon: Tags,
+      label: 'Nhãn',
+      to: { pathname: '/tags' },
+      match: (loc) => loc.pathname.startsWith('/tags'),
+    },
+    {
       id: 'members',
       icon: Users,
       label: 'Thành viên',
@@ -87,6 +129,16 @@ export default function Sidebar() {
       match: (loc) => loc.pathname.startsWith('/members'),
     },
   ];
+
+  if (user?.role === 'admin') {
+    navItems.push({
+      id: 'admin',
+      icon: ShieldCheck,
+      label: 'Quản trị',
+      to: { pathname: '/admin' },
+      match: (loc) => loc.pathname.startsWith('/admin'),
+    });
+  }
 
   const initials = user?.full_name
     ?.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2) || 'U';
@@ -116,6 +168,16 @@ export default function Sidebar() {
           </div>
         ))}
 
+        <div className="nav-section-label">Dữ liệu</div>
+
+        <div
+          className={`nav-item ${location.pathname.startsWith('/archive') ? 'active' : ''}`}
+          onClick={() => navigate('/archive')}
+        >
+          <Archive className="nav-icon" size={18} />
+          <span>Lưu trữ</span>
+        </div>
+
         <div className="nav-section-label">Cài đặt</div>
 
         <div
@@ -138,14 +200,23 @@ export default function Sidebar() {
         </div>
       </nav>
 
-      <div className="sidebar-footer">
-        <div className="user-card" onClick={handleLogout} title="Đăng xuất">
+      <div className="sidebar-footer" ref={menuRef}>
+        {showUserMenu && (
+          <div className="user-popover">
+            <div className="popover-item" onClick={() => { navigate('/settings'); setShowUserMenu(false); }}>
+              <Settings size={16} /> Cài đặt tài khoản
+            </div>
+            <div className="popover-item danger" onClick={handleLogout}>
+              <LogOut size={16} /> Đăng xuất
+            </div>
+          </div>
+        )}
+        <div className="user-card" onClick={() => setShowUserMenu(!showUserMenu)}>
           <div className="avatar">{initials}</div>
           <div className="user-info">
             <div className="user-name">{user?.full_name || 'User'}</div>
             <div className="user-role">{user?.role || 'member'}</div>
           </div>
-          <LogOut size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
         </div>
       </div>
     </aside>

@@ -12,6 +12,26 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _normalize_timestamp(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value.replace(microsecond=0)
+
+
+def _ensure_task_not_stale(task: models.Task, expected_updated_at: datetime | None) -> None:
+    if expected_updated_at is None:
+        return
+    current = _normalize_timestamp(task.updated_at)
+    expected = _normalize_timestamp(expected_updated_at)
+    if current != expected:
+        raise HTTPException(
+            status_code=409,
+            detail="Task vừa được người khác cập nhật. Vui lòng tải lại bảng.",
+        )
+
+
 def _get_task_with_tags(db: Session, task_id: int) -> models.Task | None:
     """Query task kèm eager-load tags — dùng sau commit để tránh lazy-load lỗi"""
     return (
@@ -96,7 +116,10 @@ def _can_assign_any_member(db: Session, user_id: int, project_id: int) -> bool:
         models.ProjectMember.project_id == project_id,
         models.ProjectMember.user_id == user_id,
     ).first()
-    return membership is not None and membership.project_role == 'manager'
+    return bool(
+        membership
+        and (membership.project_role == 'manager' or membership.can_manage_tasks)
+    )
 
 
 def _ensure_assignee_allowed_for_actor(
@@ -111,6 +134,20 @@ def _ensure_assignee_allowed_for_actor(
     if _can_assign_any_member(db, actor_id, project_id):
         return
     raise HTTPException(status_code=403, detail="Bạn chỉ có thể giao task cho chính mình")
+
+
+def _can_update_task(db: Session, task: models.Task, user_id: int) -> bool:
+    if _can_assign_any_member(db, user_id, task.project_id):
+        return True
+    return task.assignee_id == user_id
+
+
+def _ensure_can_update_task(db: Session, task: models.Task, user_id: int) -> None:
+    if not _can_update_task(db, task, user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Bạn chỉ có thể cập nhật task được giao cho mình",
+        )
 
 
 def get_task_or_404(db: Session, task_id: int, project_id: int) -> models.Task:
@@ -134,6 +171,8 @@ def create_task(db: Session, data: schemas.TaskCreate, reporter_id: int) -> mode
     _ensure_column_in_project(db, payload['column_id'], data.project_id)
     _ensure_column_wip_allows_one_more_task(db, payload['column_id'], data.project_id)
     _ensure_assignee_allowed_for_actor(db, payload.get('assignee_id'), data.project_id, reporter_id)
+    if payload.get('start_date') and payload.get('due_date') and payload['start_date'] > payload['due_date']:
+        raise HTTPException(status_code=400, detail="Ngày bắt đầu không được sau ngày kết thúc")
 
     payload['progress_percent'] = min(100, max(0, payload.get('progress_percent') or 0))
     if payload.get('checklist_total') is not None and payload.get('checklist_completed') is not None:
@@ -192,7 +231,15 @@ def get_tasks(
     return query.all()
 
 
-def move_task(db: Session, task: models.Task, new_column_id: int, user_id: int) -> models.Task:
+def move_task(
+    db: Session,
+    task: models.Task,
+    new_column_id: int,
+    user_id: int,
+    expected_updated_at: datetime | None = None,
+) -> models.Task:
+    _ensure_can_update_task(db, task, user_id)
+    _ensure_task_not_stale(task, expected_updated_at)
     _ensure_column_in_project(db, new_column_id, task.project_id)
     if new_column_id != task.column_id:
         _ensure_column_wip_allows_one_more_task(db, new_column_id, task.project_id)
@@ -209,7 +256,14 @@ def move_task(db: Session, task: models.Task, new_column_id: int, user_id: int) 
 
 
 def update_task(db: Session, task: models.Task, data: schemas.TaskUpdate, user_id: int) -> models.Task:
+    _ensure_can_update_task(db, task, user_id)
     update_data = data.model_dump(exclude_unset=True)
+    expected_updated_at = update_data.pop("expected_updated_at", None)
+    _ensure_task_not_stale(task, expected_updated_at)
+    next_start = update_data.get('start_date', task.start_date)
+    next_due = update_data.get('due_date', task.due_date)
+    if next_start and next_due and next_start > next_due:
+        raise HTTPException(status_code=400, detail="Ngày bắt đầu không được sau ngày kết thúc")
     if 'assignee_id' in update_data and update_data.get('assignee_id') != task.assignee_id:
         _ensure_assignee_allowed_for_actor(db, update_data.get('assignee_id'), task.project_id, user_id)
 
@@ -278,6 +332,7 @@ def create_checklist_item(
     data: schemas.TaskChecklistItemCreate,
     user_id: int
 ) -> models.TaskChecklistItem:
+    _ensure_can_update_task(db, task, user_id)
     payload = data.model_dump()
     if payload.get('order_index') in (None, 0):
         max_order = db.query(func.max(models.TaskChecklistItem.order_index)).filter(
@@ -305,6 +360,7 @@ def update_checklist_item(
     data: schemas.TaskChecklistItemUpdate,
     user_id: int
 ) -> models.TaskChecklistItem:
+    _ensure_can_update_task(db, task, user_id)
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(item, key, value)
@@ -325,6 +381,7 @@ def delete_checklist_item(
     item: models.TaskChecklistItem,
     user_id: int
 ) -> None:
+    _ensure_can_update_task(db, task, user_id)
     db.delete(item)
     db.flush()
     _sync_checklist_counts(db, task)

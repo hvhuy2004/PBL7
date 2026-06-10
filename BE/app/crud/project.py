@@ -15,6 +15,8 @@ def get_project_or_404(db: Session, project_id: int) -> models.Project:
 
 
 def create_project(db: Session, data: schemas.ProjectCreate, current_user: models.User) -> models.Project:
+    if data.start_date and data.end_date and data.start_date > data.end_date:
+        raise HTTPException(status_code=400, detail="Ngày bắt đầu không được sau ngày kết thúc")
     project = models.Project(
         workspace_id=None,
         owner_id=current_user.id,
@@ -43,9 +45,11 @@ def create_project(db: Session, data: schemas.ProjectCreate, current_user: model
     db.flush()
 
     db.add_all([
-        models.BoardColumn(board_id=board.id, name="To Do", order_index=1),
-        models.BoardColumn(board_id=board.id, name="In Progress", order_index=2),
-        models.BoardColumn(board_id=board.id, name="Done", order_index=3),
+        models.BoardColumn(board_id=board.id, name="Backlog", order_index=1, wip_limit=20),
+        models.BoardColumn(board_id=board.id, name="To Do", order_index=2, wip_limit=20),
+        models.BoardColumn(board_id=board.id, name="In Progress", order_index=3, wip_limit=20),
+        models.BoardColumn(board_id=board.id, name="Review / Testing", order_index=4, wip_limit=20),
+        models.BoardColumn(board_id=board.id, name="Done", order_index=5, wip_limit=20, is_done=True),
     ])
 
     db.commit()
@@ -76,7 +80,12 @@ def get_projects_for_user_in_workspace(db: Session, workspace_id: int, user: mod
 
 
 def update_project(db: Session, project: models.Project, data: schemas.ProjectUpdate) -> models.Project:
-    for key, value in data.model_dump(exclude_unset=True).items():
+    update_data = data.model_dump(exclude_unset=True)
+    next_start = update_data.get('start_date', project.start_date)
+    next_end = update_data.get('end_date', project.end_date)
+    if next_start and next_end and next_start > next_end:
+        raise HTTPException(status_code=400, detail="Ngày bắt đầu không được sau ngày kết thúc")
+    for key, value in update_data.items():
         setattr(project, key, value)
     db.commit()
     db.refresh(project)

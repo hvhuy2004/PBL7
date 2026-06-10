@@ -18,7 +18,7 @@ def add_member(
     current_user: models.User = Depends(deps.require_project_manager)
 ):
     """(Manager) Thêm thành viên vào Project"""
-    return crud_member.add_member(db, project_id, data)
+    return crud_member.add_member(db, project_id, data, current_user=current_user)
 
 
 @router.get("/{project_id}/members", response_model=List[schemas.ProjectMemberResponse])
@@ -40,7 +40,14 @@ def update_member_role(
     current_user: models.User = Depends(deps.require_project_manager)
 ):
     """(Manager) Thay đổi role của thành viên"""
-    return crud_member.update_member_role(db, project_id, user_id, role=data.project_role)
+    return crud_member.update_member_role(
+        db,
+        project_id,
+        user_id,
+        role=data.project_role,
+        can_manage_tasks=data.can_manage_tasks,
+        current_user=current_user,
+    )
 
 
 @router.delete("/{project_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -51,4 +58,4 @@ def remove_member(
     current_user: models.User = Depends(deps.require_project_manager)
 ):
     """(Manager) Xóa thành viên khỏi Project"""
-    crud_member.remove_member(db, project_id, user_id, current_user_id=current_user.id)
+    crud_member.remove_member(db, project_id, user_id, current_user=current_user)

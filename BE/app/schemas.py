@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 from datetime import datetime
 
@@ -10,18 +10,23 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     email: Optional[str] = None
 
+class GoogleLoginRequest(BaseModel):
+    credential: str = Field(min_length=10)
+
 # --- User ---
 class UserBase(BaseModel):
-    email: EmailStr
+    email: str
     full_name: str
 
 class UserCreate(UserBase):
-    password: str
+    email: EmailStr
+    password: str = Field(min_length=6)
 
 class UserResponse(UserBase):
     id: int
     role: str
     avatar_url: Optional[str]
+    auth_provider: Optional[str] = "password"
     created_at: datetime
 
     class Config:
@@ -115,6 +120,7 @@ class TaskBase(BaseModel):
     order_index: int
     column_id: int
     assignee_id: Optional[int] = None
+    is_ai_generated: Optional[bool] = False
 
 class TaskCreate(TaskBase):
     project_id: int
@@ -123,7 +129,6 @@ class TaskResponse(TaskBase):
     id: int
     project_id: int
     reporter_id: int
-    is_ai_generated: bool
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime] = None
@@ -131,6 +136,28 @@ class TaskResponse(TaskBase):
 
     class Config:
         from_attributes = True
+
+class TaskDuplicateCheckRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+    exclude_task_id: Optional[int] = None
+
+class TaskDuplicateCandidate(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    similarity: float
+    priority: Optional[str] = None
+    task_type: Optional[str] = None
+    assignee_id: Optional[int] = None
+    due_date: Optional[datetime] = None
+
+class TaskDuplicateCheckResponse(BaseModel):
+    duplicate_found: bool
+    threshold: float
+    method: str
+    candidates: List[TaskDuplicateCandidate] = []
+    note: Optional[str] = None
 
 # --- Task Checklist Item ---
 class TaskChecklistItemBase(BaseModel):
@@ -191,6 +218,20 @@ class CommentResponse(CommentBase):
     class Config:
         from_attributes = True
 
+# --- Project Message ---
+class ProjectMessageCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)
+
+class ProjectMessageResponse(BaseModel):
+    id: int
+    project_id: int
+    user_id: int
+    user_name: str
+    user_avatar_url: Optional[str] = None
+    content: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
 # --- Activity Log ---
 class ActivityLogResponse(BaseModel):
     id: int
@@ -208,11 +249,13 @@ class ActivityLogResponse(BaseModel):
 class ProjectMemberCreate(BaseModel):
     user_id: int
     project_role: str = 'developer'
+    can_manage_tasks: Optional[bool] = None
 
 class ProjectMemberResponse(BaseModel):
     project_id: int
     user_id: int
     project_role: str
+    can_manage_tasks: bool = False
     joined_at: datetime
     class Config:
         from_attributes = True
@@ -220,6 +263,7 @@ class ProjectMemberResponse(BaseModel):
 
 # --- Task Update ---
 class TaskUpdate(BaseModel):
+    expected_updated_at: Optional[datetime] = None
     title: Optional[str] = None
     description: Optional[str] = None
     priority: Optional[str] = None
@@ -233,6 +277,40 @@ class TaskUpdate(BaseModel):
     completed_at: Optional[datetime] = None
     assignee_id: Optional[int] = None
     order_index: Optional[int] = None
+
+# --- AI Task Assistant ---
+class AITaskParseRequest(BaseModel):
+    prompt: str
+    column_id: Optional[int] = None
+
+class AITaskParseResponse(BaseModel):
+    title: str
+    description: Optional[str] = None
+    priority: str = "Medium"
+    task_type: str = "Task"
+    assignee_id: Optional[int] = None
+    assignee_name: Optional[str] = None
+    start_date: Optional[datetime] = None
+    due_date: Optional[datetime] = None
+    estimated_hours: Optional[float] = None
+    confidence: Optional[float] = None
+    notes: Optional[str] = None
+
+class AITaskBulkParseResponse(BaseModel):
+    tasks: List[AITaskParseResponse]
+    notes: Optional[str] = None
+    used_model: Optional[str] = None
+
+class AIProjectSummaryResponse(BaseModel):
+    health_score: int
+    risk_level: str
+    summary: str
+    risks: List[str] = []
+    overloaded_members: List[str] = []
+    priority_tasks: List[str] = []
+    next_actions: List[str] = []
+    metrics: dict = {}
+    generated_at: datetime
 
 # --- Notification ---
 class NotificationResponse(BaseModel):

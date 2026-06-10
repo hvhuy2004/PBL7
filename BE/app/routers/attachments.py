@@ -6,6 +6,7 @@ from app import schemas, models
 from app.database import get_db
 from app.core.deps import get_current_user
 from app.crud import attachment as crud_attachment
+from app.crud import task as crud_task
 
 router = APIRouter(prefix="/attachments", tags=["Attachments"])
 
@@ -37,7 +38,8 @@ def upload_file(
     current_user: models.User = Depends(get_current_user)
 ):
     """(Thành viên) Upload file đính kèm vào Task"""
-    _verify_task_member(task_id, db, current_user)
+    task = _verify_task_member(task_id, db, current_user)
+    crud_task._ensure_can_update_task(db, task, current_user.id)
     return crud_attachment.upload_attachment(db, task_id, uploader_id=current_user.id, file=file)
 
 
@@ -59,4 +61,15 @@ def delete_attachment(
     current_user: models.User = Depends(get_current_user)
 ):
     """Xóa file đính kèm (chỉ người upload hoặc manager)"""
-    crud_attachment.delete_attachment(db, attachment_id, user_id=current_user.id)
+    attachment = db.query(models.Attachment).filter(models.Attachment.id == attachment_id).first()
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    task = _verify_task_member(attachment.task_id, db, current_user)
+    if attachment.uploader_id != current_user.id:
+        crud_task._ensure_can_update_task(db, task, current_user.id)
+    crud_attachment.delete_attachment(
+        db,
+        attachment_id,
+        user_id=current_user.id,
+        allow_manager=attachment.uploader_id != current_user.id,
+    )

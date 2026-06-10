@@ -42,7 +42,7 @@ export default function ProjectAnalytics({ projectId }) {
   // Formatting Data for Recharts
   const trendData = (stats.trend_7days || []).map(d => ({
     date: d.date,
-    Tasks: d.count
+    'Công việc': d.count
   }));
 
   const priorityData = Object.entries(stats.by_priority || {}).map(([key, value]) => ({
@@ -52,12 +52,12 @@ export default function ProjectAnalytics({ projectId }) {
 
   const workloadData = (stats.assignee_stats || []).map(u => ({
     name: u.name,
-    Tasks: u.count
+    'Công việc': u.count
   }));
 
   const columnData = (stats.by_column || []).map(c => ({
     name: c.column_name,
-    Tasks: c.count
+    'Công việc': c.count
   }));
 
   return (
@@ -80,7 +80,7 @@ export default function ProjectAnalytics({ projectId }) {
               contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)' }}
               itemStyle={{ color: 'var(--text-primary)' }}
             />
-            <Area type="monotone" dataKey="Tasks" name="Hoàn thành" stroke="var(--accent)" strokeWidth={3} fillOpacity={1} fill="url(#colorTasks)" />
+            <Area type="monotone" dataKey="Công việc" name="Hoàn thành" stroke="var(--accent)" strokeWidth={3} fillOpacity={1} fill="url(#colorTasks)" />
           </AreaChart>
         </ResponsiveContainer>
       </AnalyticsCard>
@@ -96,7 +96,7 @@ export default function ProjectAnalytics({ projectId }) {
               cursor={{ fill: 'rgba(79,142,247,0.1)' }}
               contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)' }}
             />
-            <Bar dataKey="Tasks" radius={[6, 6, 0, 0]}>
+            <Bar dataKey="Công việc" radius={[6, 6, 0, 0]}>
               {columnData.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
               ))}
@@ -116,7 +116,7 @@ export default function ProjectAnalytics({ projectId }) {
               cursor={{ fill: 'rgba(167,139,250,0.1)' }}
               contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)' }}
             />
-            <Bar dataKey="Tasks" radius={[0, 6, 6, 0]} fill="var(--purple)" barSize={32} />
+            <Bar dataKey="Công việc" radius={[0, 6, 6, 0]} fill="var(--purple)" barSize={32} />
           </BarChart>
         </ResponsiveContainer>
       </AnalyticsCard>

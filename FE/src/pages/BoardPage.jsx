@@ -1,13 +1,13 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   Archive,
   ArrowLeft,
   Activity,
   CalendarDays,
-  Cpu,
+  Sparkles,
   Edit3,
   LayoutGrid,
   Lock,
@@ -29,9 +29,15 @@ import KanbanFilterBar from '../components/KanbanFilterBar';
 import ProjectAnalytics from '../components/ProjectAnalytics';
 import ActivityLogPanel from '../components/ActivityLogPanel';
 
-const PRIORITY_COLORS = { Low: '#3fb950', Medium: '#d29922', High: '#f85149' };
+const PRIORITY_LABELS = { Low: 'Thấp', Medium: 'Trung bình', High: 'Cao' };
 const TYPE_CLASSES = { Task: 'type-task', Bug: 'type-bug', Feature: 'type-feature', Docs: 'type-docs' };
 const TYPE_LABELS = { Task: 'Công việc', Bug: 'Lỗi', Feature: 'Tính năng', Docs: 'Tài liệu' };
+const PROJECT_ROLE_LABELS = { developer: 'Developer', tester: 'Tester' };
+const MEMBER_ROLE_LABELS = { manager: 'Manager', ...PROJECT_ROLE_LABELS };
+const TASK_SCOPE_OPTIONS = [
+  { value: 'self', label: 'Chỉ việc được giao' },
+  { value: 'all', label: 'Điều phối công việc' },
+];
 
 function toDatetimeLocalValue(value) {
   if (!value) return '';
@@ -139,7 +145,7 @@ function CreateColumnModal({ projectId, boardId, onClose, onCreated }) {
   const [name, setName] = useState('');
   const [orderIndex, setOrderIndex] = useState(1);
   const [color, setColor] = useState('#4f8ef7');
-  const [wipLimit, setWipLimit] = useState('');
+  const [wipLimit, setWipLimit] = useState('20');
   const [isDone, setIsDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -271,11 +277,31 @@ function EditColumnModal({ column, projectId, boardId, onClose, onUpdated }) {
   );
 }
 
-function MembersModal({ projectId, members, userMap, onClose, onChanged, addToast }) {
+function MembersModal({
+  projectId,
+  members,
+  userMap,
+  currentUserId,
+  onClose,
+  onChanged,
+  addToast,
+}) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [role, setRole] = useState('developer');
+  const [taskScope, setTaskScope] = useState('self');
   const [loading, setLoading] = useState(false);
+  const [updatingRoleUserId, setUpdatingRoleUserId] = useState(null);
+  const roleOptions = useMemo(
+    () => Object.entries(PROJECT_ROLE_LABELS),
+    [],
+  );
+
+  useEffect(() => {
+    if (!roleOptions.some(([value]) => value === role)) {
+      setRole('developer');
+    }
+  }, [role, roleOptions]);
 
   const search = async () => {
     if (!query.trim()) return;
@@ -292,7 +318,11 @@ function MembersModal({ projectId, members, userMap, onClose, onChanged, addToas
 
   const addMember = async (userId) => {
     try {
-      await api.post(`/projects/${projectId}/members`, { user_id: userId, project_role: role });
+      await api.post(`/projects/${projectId}/members`, {
+        user_id: userId,
+        project_role: role,
+        can_manage_tasks: taskScope === 'all',
+      });
       addToast('Đã thêm thành viên vào project', 'success');
       onChanged();
     } catch (err) {
@@ -311,6 +341,29 @@ function MembersModal({ projectId, members, userMap, onClose, onChanged, addToas
     }
   };
 
+  const updateMember = async (userId, nextRole, nextCanManageTasks) => {
+    const current = members.find((m) => m.user_id === userId);
+    if (!current) return;
+    if (
+      current.project_role === nextRole
+      && Boolean(current.can_manage_tasks) === Boolean(nextCanManageTasks)
+    ) return;
+    setUpdatingRoleUserId(userId);
+    try {
+      await api.put(`/projects/${projectId}/members/${userId}`, {
+        user_id: userId,
+        project_role: nextRole,
+        can_manage_tasks: nextRole === 'manager' || Boolean(nextCanManageTasks),
+      });
+      addToast('Đã cập nhật phân quyền thành viên', 'success');
+      onChanged();
+    } catch (err) {
+      addToast(err.response?.data?.detail || 'Cập nhật phân quyền thất bại', 'error');
+    } finally {
+      setUpdatingRoleUserId(null);
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ width: 680, maxHeight: '90vh', overflow: 'auto' }}>
@@ -321,12 +374,17 @@ function MembersModal({ projectId, members, userMap, onClose, onChanged, addToas
 
         <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, marginBottom: 12 }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Mời thành viên mới</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px 90px', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 130px 170px 90px', gap: 8, alignItems: 'center' }}>
             <input className="form-input" placeholder="Nhập email user..." value={query} onChange={(e) => setQuery(e.target.value)} />
             <select className="form-input" value={role} onChange={(e) => setRole(e.target.value)}>
-              <option value="manager">manager</option>
-              <option value="developer">developer</option>
-              <option value="tester">tester</option>
+              {roleOptions.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+            <select className="form-input" value={taskScope} onChange={(e) => setTaskScope(e.target.value)}>
+              {TASK_SCOPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
             </select>
             <button className="btn btn-primary" onClick={search} disabled={loading}>{loading ? '...' : 'Tìm'}</button>
           </div>
@@ -349,20 +407,241 @@ function MembersModal({ projectId, members, userMap, onClose, onChanged, addToas
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {members.map((m) => {
             const user = userMap[m.user_id];
+            const isUpdatingRole = updatingRoleUserId === m.user_id;
+            const isManagerRole = m.project_role === 'manager';
+            const canEditThisRole = !isManagerRole;
+            const canRemoveThisMember = !isManagerRole && m.user_id !== currentUserId;
             return (
-              <div key={m.user_id} style={{ display: 'grid', gridTemplateColumns: '1fr 130px 100px', gap: 8, alignItems: 'center', background: 'var(--bg-secondary)', borderRadius: 8, padding: '8px 10px' }}>
+              <div key={m.user_id} style={{ display: 'grid', gridTemplateColumns: '1fr 130px 170px 100px', gap: 8, alignItems: 'center', background: 'var(--bg-secondary)', borderRadius: 8, padding: '8px 10px' }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{user?.full_name || `User #${m.user_id}`}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{user?.email || '-'}</div>
                 </div>
-                <div style={{ fontSize: 12 }} className="badge badge-active">{m.project_role}</div>
-                <button className="btn btn-sm btn-danger" onClick={() => removeMember(m.user_id)}><Trash2 size={13} /> Xóa</button>
+                <select
+                  className="form-input"
+                  value={m.project_role}
+                  disabled={isUpdatingRole || !canEditThisRole}
+                  onChange={(e) => updateMember(m.user_id, e.target.value, m.can_manage_tasks)}
+                  title="Vai trò chuyên môn"
+                  style={{ height: 34, fontSize: 12, fontWeight: 700 }}
+                >
+                  {(canEditThisRole ? roleOptions : [[m.project_role, MEMBER_ROLE_LABELS[m.project_role] || m.project_role]]).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+                <select
+                  className="form-input"
+                  value={m.project_role === 'manager' || Boolean(m.can_manage_tasks) ? 'all' : 'self'}
+                  disabled={isUpdatingRole || !canEditThisRole || m.project_role === 'manager'}
+                  onChange={(e) => updateMember(m.user_id, m.project_role, e.target.value === 'all')}
+                  title="Phạm vi quyền công việc"
+                  style={{ height: 34, fontSize: 12, fontWeight: 700 }}
+                >
+                  {TASK_SCOPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <button className="btn btn-sm btn-danger" disabled={!canRemoveThisMember} onClick={() => removeMember(m.user_id)}><Trash2 size={13} /> Xóa</button>
               </div>
             );
           })}
           {!members.length && <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Chưa có thành viên</div>}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ProjectAISummaryModal({ projectId, onClose }) {
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError('');
+    api.post(`/projects/${projectId}/ai/project-summary`)
+      .then((res) => {
+        if (active) setSummary(res.data);
+      })
+      .catch((err) => {
+        if (active) setError(err.response?.data?.detail || 'Chưa tổng kết được dự án');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, [projectId]);
+
+  const metrics = summary?.metrics || {};
+  const riskColor = summary?.risk_level === 'Cao'
+    ? 'var(--red)'
+    : summary?.risk_level === 'Trung bình'
+      ? 'var(--yellow)'
+      : 'var(--green)';
+
+  const renderList = (title, items, emptyText) => (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, background: 'var(--bg-secondary)' }}>
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{title}</div>
+      {items?.length ? (
+        <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6, color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.5 }}>
+          {items.map((item, index) => <li key={`${title}-${index}`}>{item}</li>)}
+        </ul>
+      ) : (
+        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{emptyText}</div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ width: 760, maxHeight: '90vh', overflow: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+          <div>
+            <div className="modal-title" style={{ marginBottom: 4 }}>Tổng kết dự án</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Tổng hợp tiến độ, deadline, workload và các điểm cần chú ý.</div>
+          </div>
+          <button className="btn-icon" onClick={onClose}><X size={16} /></button>
+        </div>
+
+        {loading ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '26px 0', color: 'var(--text-secondary)' }}>
+            <div className="spinner" /> Đang tổng hợp dữ liệu dự án...
+          </div>
+        ) : error ? (
+          <div style={{ color: 'var(--red)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <AlertCircle size={14} /> {error}
+          </div>
+        ) : summary && (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: 14 }}>
+              {[
+                ['Sức khỏe', `${summary.health_score}/100`, riskColor],
+                ['Rủi ro', summary.risk_level, riskColor],
+                ['Đang mở', metrics.open_tasks ?? 0, 'var(--accent)'],
+                ['Quá hạn', metrics.overdue_tasks ?? 0, metrics.overdue_tasks ? 'var(--red)' : 'var(--text-secondary)'],
+              ].map(([label, value, color]) => (
+                <div key={label} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, background: 'var(--bg-secondary)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 750, color }}>{value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 14, marginBottom: 12, background: 'var(--bg-card)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontWeight: 700 }}>
+                <Activity size={15} color="var(--accent)" /> Nhận định
+              </div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6 }}>{summary.summary}</div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {renderList('Rủi ro cần chú ý', summary.risks, 'Chưa phát hiện rủi ro rõ ràng.')}
+              {renderList('Thành viên cần theo dõi', summary.overloaded_members, 'Chưa có thành viên quá tải rõ ràng.')}
+              {renderList('Công việc nên ưu tiên', summary.priority_tasks, 'Chưa có công việc ưu tiên nổi bật.')}
+              {renderList('Hành động đề xuất', summary.next_actions, 'Chưa có đề xuất bổ sung.')}
+            </div>
+
+            <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)' }}>
+              Dữ liệu gồm {metrics.total_tasks ?? 0} công việc, hoàn thành {metrics.completion_rate ?? 0}%, tiến độ trung bình {metrics.average_progress ?? 0}%.
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AITaskPromptPanel({
+  aiPrompt,
+  setAiPrompt,
+  fillFromAI,
+  aiLoading,
+  aiNote,
+  aiModelUsed,
+  aiDrafts,
+  selectedDrafts,
+  toggleDraft,
+  createSelectedDrafts,
+  bulkCreating,
+  userMap,
+}) {
+  return (
+    <div style={{
+      border: '1px solid var(--border)',
+      background: 'var(--bg-card)',
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 14,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <Sparkles size={14} color="var(--accent)" />
+        <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-secondary)' }}>Trợ lý tạo công việc</div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
+        <textarea
+          className="form-input"
+          value={aiPrompt}
+          onChange={(e) => setAiPrompt(e.target.value)}
+          placeholder="VD: Tạo các công việc cho module đăng nhập: UI cho An, API đăng nhập cho Huy, quên mật khẩu cho Huy, kiểm thử lỗi đăng nhập cho Linh. Hạn thứ 6 tuần này."
+          rows={2}
+          style={{ resize: 'vertical' }}
+        />
+        <button type="button" className="btn btn-primary" onClick={fillFromAI} disabled={aiLoading}>
+          <Plus size={14} /> {aiLoading ? 'Đang đọc...' : 'Tạo draft'}
+        </button>
+      </div>
+      {aiNote && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>{aiNote}</div>}
+      {aiModelUsed && (
+        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+          Model: {aiModelUsed}
+        </div>
+      )}
+      {!!aiDrafts.length && (
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {aiDrafts.map((draft, index) => (
+            <label
+              key={`${draft.title}-${index}`}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '22px 1fr',
+                gap: 8,
+                alignItems: 'start',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                padding: 10,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={selectedDrafts.includes(index)}
+                onChange={() => toggleDraft(index)}
+                style={{ marginTop: 2 }}
+              />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{draft.title}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 5, fontSize: 12, color: 'var(--text-secondary)' }}>
+                  <span>{TYPE_LABELS[draft.task_type] || draft.task_type || 'Công việc'}</span>
+                  <span>{PRIORITY_LABELS[draft.priority] || draft.priority || 'Trung bình'}</span>
+                  {draft.assignee_id && <span>{userMap[draft.assignee_id]?.full_name || draft.assignee_name || `User #${draft.assignee_id}`}</span>}
+                  {draft.due_date && <span>{new Date(draft.due_date).toLocaleDateString('vi-VN')}</span>}
+                  {draft.estimated_hours && <span>{draft.estimated_hours}h</span>}
+                </div>
+                {draft.description && (
+                  <div style={{ marginTop: 5, fontSize: 12, color: 'var(--text-muted)' }}>{draft.description}</div>
+                )}
+              </div>
+            </label>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button type="button" className="btn btn-primary" onClick={createSelectedDrafts} disabled={bulkCreating || !selectedDrafts.length}>
+              <Plus size={14} /> {bulkCreating ? 'Đang tạo...' : `Tạo ${selectedDrafts.length} công việc đã chọn`}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -381,9 +660,20 @@ function CreateTaskModal({ projectId, columnId, members, userMap, canManage, cur
     due_date: '',
     estimated_hours: '',
     progress_percent: 0,
+    is_ai_generated: false,
   });
   const [loading, setLoading] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiNote, setAiNote] = useState('');
+  const [aiModelUsed, setAiModelUsed] = useState('');
+  const [aiDrafts, setAiDrafts] = useState([]);
+  const [selectedDrafts, setSelectedDrafts] = useState([]);
+  const [bulkCreating, setBulkCreating] = useState(false);
   const [error, setError] = useState('');
+  const [duplicateChecking, setDuplicateChecking] = useState(false);
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
+  const [duplicateCheckResult, setDuplicateCheckResult] = useState(null);
 
   const assignableMembers = useMemo(() => {
     if (canManage) return members;
@@ -391,51 +681,324 @@ function CreateTaskModal({ projectId, columnId, members, userMap, canManage, cur
     return members.filter((m) => m.user_id === currentUser.id);
   }, [canManage, currentUser, members]);
 
+  const applyDraftToForm = (draft) => {
+    setForm((prev) => ({
+      ...prev,
+      title: draft.title || prev.title,
+      description: draft.description || prev.description,
+      priority: draft.priority || prev.priority,
+      task_type: draft.task_type || prev.task_type,
+      assignee_id: draft.assignee_id ? String(draft.assignee_id) : '',
+      start_date: draft.start_date ? toDatetimeLocalValue(draft.start_date) : prev.start_date,
+      due_date: draft.due_date ? toDatetimeLocalValue(draft.due_date) : prev.due_date,
+      estimated_hours: draft.estimated_hours ?? prev.estimated_hours,
+      is_ai_generated: true,
+    }));
+  };
+
+  const fillFromAI = async () => {
+    const prompt = aiPrompt.trim();
+    if (prompt.length < 8) {
+      setError('Hãy nhập mô tả công việc rõ hơn để hệ thống phân tích');
+      return;
+    }
+    setError('');
+    setAiNote('');
+    setAiModelUsed('');
+    setAiDrafts([]);
+    setSelectedDrafts([]);
+    setAiLoading(true);
+    try {
+      const { data } = await api.post(`/projects/${projectId}/ai/parse-tasks`, {
+        prompt,
+        column_id: columnId,
+      });
+      const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+      setAiModelUsed(data.used_model || '');
+      if (tasks.length === 1) {
+        applyDraftToForm(tasks[0]);
+        const confidence = typeof tasks[0].confidence === 'number' ? ` - Tin cậy ${Math.round(tasks[0].confidence * 100)}%` : '';
+        setAiNote(tasks[0].notes ? `${tasks[0].notes}${confidence}` : `Đã điền form từ mô tả${confidence}`);
+      } else {
+        setAiDrafts(tasks);
+        setSelectedDrafts(tasks.map((_, index) => index));
+        setAiNote(data.notes || `Đã tạo ${tasks.length} công việc nháp. Kiểm tra rồi tạo các công việc đã chọn.`);
+      }
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Chưa phân tích được yêu cầu');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const toggleDraft = (index) => {
+    setSelectedDrafts((prev) => (
+      prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index].sort((a, b) => a - b)
+    ));
+  };
+
+  const createPayloadFromDraft = (draft) => ({
+    project_id: Number(projectId),
+    column_id: columnId,
+    order_index: 0,
+    title: draft.title,
+    description: draft.description || null,
+    priority: draft.priority || 'Medium',
+    task_type: draft.task_type || 'Task',
+    assignee_id: draft.assignee_id ? Number(draft.assignee_id) : null,
+    start_date: draft.start_date || null,
+    due_date: draft.due_date || null,
+    estimated_hours: draft.estimated_hours ? Number(draft.estimated_hours) : null,
+    progress_percent: 0,
+    is_ai_generated: true,
+  });
+
+  const duplicateKeyFor = (title, description) => `${String(title || '').trim()}\n${String(description || '').trim()}`;
+
+  const checkDuplicate = async (payload) => {
+    const { data } = await api.post(`/projects/${projectId}/tasks/check-duplicate`, {
+      title: payload.title,
+      description: payload.description || '',
+    });
+    return data;
+  };
+
+  const buildPayloadFromForm = () => ({
+    ...form,
+    assignee_id: form.assignee_id ? Number(form.assignee_id) : null,
+    start_date: localDatetimeInputToISO(form.start_date),
+    due_date: localDatetimeInputToISO(form.due_date),
+    estimated_hours: form.estimated_hours ? Number(form.estimated_hours) : null,
+    progress_percent: Number(form.progress_percent || 0),
+  });
+
+  const checkDuplicateForForm = async ({ force = false } = {}) => {
+    const title = form.title.trim();
+    const description = form.description || '';
+    const key = duplicateKeyFor(title, description);
+    if (!title || key.length < 6) return null;
+    if (!force && duplicateCheckResult?.key === key) return duplicateCheckResult.result;
+
+    setDuplicateChecking(true);
+    try {
+      const result = await checkDuplicate({ title, description });
+      setDuplicateCheckResult({ key, result });
+      if (result.duplicate_found) {
+        setDuplicateWarning({ kind: 'single', payload: buildPayloadFromForm(), duplicate: result, key });
+      } else if (duplicateWarning?.kind === 'single') {
+        setDuplicateWarning(null);
+      }
+      return result;
+    } catch {
+      return null;
+    } finally {
+      setDuplicateChecking(false);
+    }
+  };
+
+  const handleTaskTextChange = (field, value) => {
+    setForm((p) => ({ ...p, [field]: value }));
+    setDuplicateWarning(null);
+    setDuplicateCheckResult(null);
+  };
+
+  const createTaskDirect = async (payload) => {
+    const { data } = await api.post(`/projects/${projectId}/tasks`, payload);
+    onCreated(data);
+    return data;
+  };
+
+  const continueAfterDuplicateWarning = async () => {
+    if (!duplicateWarning) return;
+    setError('');
+    try {
+      if (duplicateWarning.kind === 'bulk') {
+        setBulkCreating(true);
+        const created = [];
+        for (const payload of duplicateWarning.payloads) {
+          created.push(await createTaskDirect(payload));
+        }
+        setAiNote(`Đã tạo ${created.length} công việc từ mô tả`);
+        setAiDrafts([]);
+        setSelectedDrafts([]);
+      } else {
+        setLoading(true);
+        await createTaskDirect(duplicateWarning.payload);
+      }
+      setDuplicateWarning(null);
+      onClose();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Tạo công việc thất bại');
+    } finally {
+      setLoading(false);
+      setBulkCreating(false);
+    }
+  };
+
+  const createSelectedDrafts = async () => {
+    const drafts = selectedDrafts.map((index) => aiDrafts[index]).filter(Boolean);
+    if (!drafts.length) return;
+    setError('');
+    setDuplicateWarning(null);
+    setBulkCreating(true);
+    try {
+      const payloads = drafts.map(createPayloadFromDraft);
+      const duplicateResults = await Promise.all(payloads.map((payload) => checkDuplicate(payload).catch(() => null)));
+      const duplicates = duplicateResults
+        .map((result, index) => ({ result, draft: drafts[index], payload: payloads[index] }))
+        .filter((item) => item.result?.duplicate_found);
+      if (duplicates.length) {
+        setDuplicateWarning({ kind: 'bulk', payloads, duplicates });
+        return;
+      }
+      const created = [];
+      for (const payload of payloads) {
+        created.push(await createTaskDirect(payload));
+      }
+      setAiNote(`Đã tạo ${created.length} công việc từ mô tả`);
+      setAiDrafts([]);
+      setSelectedDrafts([]);
+      onClose();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Tạo công việc từ mô tả thất bại');
+    } finally {
+      setBulkCreating(false);
+    }
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     if (!form.title.trim()) {
       setError('Tiêu đề công việc không được để trống');
       return;
     }
-    setLoading(true);
+    if (form.start_date && form.due_date && new Date(form.start_date) > new Date(form.due_date)) {
+      setError('Ngày bắt đầu không được sau ngày kết thúc');
+      return;
+    }
+    setError('');
+    setDuplicateWarning(null);
+    setDuplicateChecking(true);
     try {
-      const payload = {
-        ...form,
-        assignee_id: form.assignee_id ? Number(form.assignee_id) : null,
-        start_date: localDatetimeInputToISO(form.start_date),
-        due_date: localDatetimeInputToISO(form.due_date),
-        estimated_hours: form.estimated_hours ? Number(form.estimated_hours) : null,
-        progress_percent: Number(form.progress_percent || 0),
-      };
-      const { data } = await api.post(`/projects/${projectId}/tasks`, payload);
-      onCreated(data);
+      const payload = buildPayloadFromForm();
+      const key = duplicateKeyFor(payload.title, payload.description);
+      const duplicate = duplicateCheckResult?.key === key
+        ? duplicateCheckResult.result
+        : await checkDuplicate(payload);
+      setDuplicateCheckResult({ key, result: duplicate });
+      if (duplicate.duplicate_found) {
+        setDuplicateWarning({ kind: 'single', payload, duplicate, key });
+        return;
+      }
+      setDuplicateChecking(false);
+      setLoading(true);
+      await createTaskDirect(payload);
       onClose();
     } catch (err) {
       setError(err.response?.data?.detail || 'Tạo công việc thất bại');
     } finally {
+      setDuplicateChecking(false);
       setLoading(false);
     }
   };
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ width: 650 }}>
+      <div className="modal" style={{ width: 760, maxHeight: '92vh', overflow: 'auto' }}>
+        <AITaskPromptPanel
+          aiPrompt={aiPrompt}
+          setAiPrompt={setAiPrompt}
+          fillFromAI={fillFromAI}
+          aiLoading={aiLoading}
+          aiNote={aiNote}
+          aiModelUsed={aiModelUsed}
+          aiDrafts={aiDrafts}
+          selectedDrafts={selectedDrafts}
+          toggleDraft={toggleDraft}
+          createSelectedDrafts={createSelectedDrafts}
+          bulkCreating={bulkCreating}
+          userMap={userMap}
+        />
         <div className="modal-title">Tạo công việc</div>
         {error && (
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', color: 'var(--red)', fontSize: 13, marginBottom: 10 }}>
             <AlertCircle size={14} /> {error}
           </div>
         )}
+        {duplicateWarning && (
+          <div style={{
+            border: '1px solid rgba(210,153,34,0.35)',
+            background: 'rgba(210,153,34,0.10)',
+            borderRadius: 8,
+            padding: 12,
+            marginBottom: 12,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#92400e', fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
+              <AlertCircle size={14} /> Có thể công việc này đã tồn tại
+            </div>
+            {duplicateWarning.kind === 'single' ? (
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                Công việc tương tự đã tồn tại: <b style={{ color: 'var(--text-primary)' }}>{duplicateWarning.duplicate.candidates?.[0]?.title}</b>
+                {' '}({Math.round((duplicateWarning.duplicate.candidates?.[0]?.similarity || 0) * 100)}% tương đồng).
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                {duplicateWarning.duplicates.length} công việc nháp có dấu hiệu trùng:
+                <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                  {duplicateWarning.duplicates.slice(0, 4).map((item, index) => (
+                    <li key={`${item.draft.title}-${index}`}>
+                      <b style={{ color: 'var(--text-primary)' }}>{item.draft.title}</b>
+                      {' '}gần giống <b style={{ color: 'var(--text-primary)' }}>{item.result.candidates?.[0]?.title}</b>
+                      {' '}({Math.round((item.result.candidates?.[0]?.similarity || 0) * 100)}%).
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => {
+                setDuplicateWarning(null);
+                setDuplicateCheckResult(null);
+              }}>
+                Kiểm tra lại
+              </button>
+              <button type="button" className="btn btn-primary btn-sm" onClick={continueAfterDuplicateWarning} disabled={loading || bulkCreating}>
+                Vẫn tạo công việc
+              </button>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={submit}>
           <div className="form-group">
             <label className="form-label">Tiêu đề *</label>
-            <input className="form-input" value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} autoFocus />
+            <input
+              className="form-input"
+              value={form.title}
+              onChange={(e) => handleTaskTextChange('title', e.target.value)}
+              onBlur={() => checkDuplicateForForm()}
+              autoFocus
+            />
           </div>
 
           <div className="form-group">
             <label className="form-label">Mô tả</label>
-            <textarea className="form-input" value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} />
+            <textarea
+              className="form-input"
+              value={form.description}
+              onChange={(e) => handleTaskTextChange('description', e.target.value)}
+              onBlur={() => checkDuplicateForForm()}
+            />
+            {duplicateChecking && (
+              <div style={{ marginTop: 5, fontSize: 12, color: 'var(--text-muted)' }}>
+                Đang kiểm tra trùng bằng embedding...
+              </div>
+            )}
+            {!duplicateChecking && duplicateCheckResult?.key === duplicateKeyFor(form.title, form.description) && !duplicateCheckResult.result.duplicate_found && (
+              <div style={{ marginTop: 5, fontSize: 12, color: 'var(--green)' }}>
+                Chưa phát hiện công việc trùng.
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
@@ -449,7 +1012,7 @@ function CreateTaskModal({ projectId, columnId, members, userMap, canManage, cur
               </select>
               {!canManage && (
                 <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-muted)' }}>
-                  Bạn chỉ có thể giao task cho chính mình.
+                  Bạn chỉ có thể giao công việc cho chính mình.
                 </div>
               )}
             </div>
@@ -496,7 +1059,7 @@ function CreateTaskModal({ projectId, columnId, members, userMap, canManage, cur
 
           <div className="modal-footer">
             <button type="button" className="btn btn-ghost" onClick={onClose}>Hủy</button>
-            <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Đang tạo...' : 'Tạo công việc'}</button>
+            <button type="submit" className="btn btn-primary" disabled={loading || duplicateChecking}>{duplicateChecking ? 'Đang kiểm tra trùng...' : loading ? 'Đang tạo...' : 'Tạo công việc'}</button>
           </div>
         </form>
       </div>
@@ -504,9 +1067,11 @@ function CreateTaskModal({ projectId, columnId, members, userMap, canManage, cur
   );
 }
 
-function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose, onUpdated, onDeleted, addToast }) {
+function TaskDetailModal({ task, projectId, members, userMap, canManage, canManageTasks, currentUser, onClose, onUpdated, onDeleted, addToast }) {
   const taskRef = useRef(task);
   const onUpdatedRef = useRef(onUpdated);
+  const canEditTask = canManageTasks || (currentUser?.id && task.assignee_id === currentUser.id);
+  const lockedFieldStyle = !canEditTask ? { background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'not-allowed' } : {};
 
   useEffect(() => {
     taskRef.current = task;
@@ -683,12 +1248,21 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
   }, [loadAttachments, loadChecklist, loadComments, loadTags]);
 
   const save = async () => {
+    if (!canEditTask) {
+      addToast('Bạn không có quyền chỉnh sửa công việc này', 'error');
+      return;
+    }
+    if (form.start_date && form.due_date && new Date(form.start_date) > new Date(form.due_date)) {
+      addToast('Ngày bắt đầu không được sau ngày kết thúc', 'error');
+      return;
+    }
     setLoading(true);
     try {
       const checklistTotal = checklistItems.length;
       const checklistCompleted = checklistItems.filter((i) => i.is_done).length;
       const payload = {
         ...form,
+        expected_updated_at: task.updated_at,
         assignee_id: form.assignee_id ? Number(form.assignee_id) : null,
         start_date: localDatetimeInputToISO(form.start_date),
         due_date: localDatetimeInputToISO(form.due_date),
@@ -697,14 +1271,18 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
         checklist_total: checklistTotal,
         checklist_completed: checklistCompleted,
       };
-      if (!canManage) {
+      if (!canManageTasks) {
         delete payload.assignee_id;
       }
       const { data } = await api.put(`/projects/${projectId}/tasks/${task.id}`, payload);
       onUpdated(data);
       addToast('Cập nhật công việc thành công', 'success');
     } catch (err) {
-      addToast(err.response?.data?.detail || 'Cập nhật công việc thất bại', 'error');
+      if (err.response?.status === 409) {
+        addToast('Công việc này vừa được người khác cập nhật. Hãy đóng mở lại để lấy dữ liệu mới.', 'error');
+      } else {
+        addToast(err.response?.data?.detail || 'Cập nhật công việc thất bại', 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -780,8 +1358,13 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
         {/* Title – always visible */}
         <div className="form-group">
           <label className="form-label">Tiêu đề</label>
-          <input className="form-input" value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} />
+          <input className="form-input" value={form.title} disabled={!canEditTask} style={lockedFieldStyle} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} />
         </div>
+        {!canEditTask && (
+          <div style={{ marginBottom: 12, padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(139,148,158,0.08)', color: 'var(--text-secondary)', fontSize: 12 }}>
+            Bạn đang xem công việc của thành viên khác. Chỉ người được giao hoặc người có quyền điều phối công việc mới có quyền chỉnh sửa.
+          </div>
+        )}
 
         {/* ── Tab: Activity Log ── */}
         {activeTab === 'activity' && (
@@ -795,14 +1378,14 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
           <div>
             <div className="form-group">
               <label className="form-label">Mô tả</label>
-              <textarea className="form-input" value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} style={{ minHeight: 90 }} />
+              <textarea className="form-input" value={form.description} disabled={!canEditTask} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} style={{ minHeight: 90, ...lockedFieldStyle }} />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               <div className="form-group">
                 <label className="form-label">Người nhận việc</label>
-                {canManage ? (
-                  <select className="form-input" value={form.assignee_id} onChange={(e) => setForm((p) => ({ ...p, assignee_id: e.target.value }))}>
+                {canManageTasks ? (
+                  <select className="form-input" value={form.assignee_id} disabled={!canEditTask} style={lockedFieldStyle} onChange={(e) => setForm((p) => ({ ...p, assignee_id: e.target.value }))}>
                     <option value="">Chưa giao</option>
                     {members.map((m) => (
                       <option key={m.user_id} value={m.user_id}>{userMap[m.user_id]?.full_name || `User #${m.user_id}`}</option>
@@ -816,18 +1399,18 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
               </div>
               <div className="form-group">
                 <label className="form-label">Ngày bắt đầu</label>
-                <input type="datetime-local" className="form-input" value={form.start_date} onChange={(e) => setForm((p) => ({ ...p, start_date: e.target.value }))} />
+                <input type="datetime-local" className="form-input" value={form.start_date} disabled={!canEditTask} style={lockedFieldStyle} onChange={(e) => setForm((p) => ({ ...p, start_date: e.target.value }))} />
               </div>
               <div className="form-group">
                 <label className="form-label">Ngày kết thúc</label>
-                <input type="datetime-local" className="form-input" value={form.due_date} onChange={(e) => setForm((p) => ({ ...p, due_date: e.target.value }))} />
+                <input type="datetime-local" className="form-input" value={form.due_date} disabled={!canEditTask} style={lockedFieldStyle} onChange={(e) => setForm((p) => ({ ...p, due_date: e.target.value }))} />
               </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div className="form-group">
                 <label className="form-label">Mức ưu tiên</label>
-                <select className="form-input" value={form.priority} onChange={(e) => setForm((p) => ({ ...p, priority: e.target.value }))}>
+                <select className="form-input" value={form.priority} disabled={!canEditTask} style={lockedFieldStyle} onChange={(e) => setForm((p) => ({ ...p, priority: e.target.value }))}>
                   <option value="Low">Thấp</option>
                   <option value="Medium">Trung bình</option>
                   <option value="High">Cao</option>
@@ -835,7 +1418,7 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
               </div>
               <div className="form-group">
                 <label className="form-label">Loại công việc</label>
-                <select className="form-input" value={form.task_type} onChange={(e) => setForm((p) => ({ ...p, task_type: e.target.value }))}>
+                <select className="form-input" value={form.task_type} disabled={!canEditTask} style={lockedFieldStyle} onChange={(e) => setForm((p) => ({ ...p, task_type: e.target.value }))}>
                   <option value="Task">Công việc</option>
                   <option value="Bug">Lỗi</option>
                   <option value="Feature">Tính năng</option>
@@ -847,11 +1430,11 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div className="form-group">
                 <label className="form-label">Ước lượng (giờ)</label>
-                <input type="number" className="form-input" value={form.estimated_hours} onChange={(e) => setForm((p) => ({ ...p, estimated_hours: e.target.value }))} min="0" step="0.5" />
+                <input type="number" className="form-input" value={form.estimated_hours} disabled={!canEditTask} style={lockedFieldStyle} onChange={(e) => setForm((p) => ({ ...p, estimated_hours: e.target.value }))} min="0" step="0.5" />
               </div>
               <div className="form-group">
                 <label className="form-label">Tiến độ %</label>
-                <input type="number" className="form-input" value={form.progress_percent} onChange={(e) => setForm((p) => ({ ...p, progress_percent: e.target.value }))} min="0" max="100" />
+                <input type="number" className="form-input" value={form.progress_percent} disabled={!canEditTask} style={lockedFieldStyle} onChange={(e) => setForm((p) => ({ ...p, progress_percent: e.target.value }))} min="0" max="100" />
               </div>
             </div>
 
@@ -868,10 +1451,12 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
                   className="form-input"
                   placeholder="Thêm việc nhỏ..."
                   value={checklistInput}
+                  disabled={!canEditTask}
+                  style={lockedFieldStyle}
                   onChange={(e) => setChecklistInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && addChecklistItem()}
+                  onKeyDown={(e) => e.key === 'Enter' && canEditTask && addChecklistItem()}
                 />
-                <button className="btn btn-primary" type="button" disabled={checklistSaving} onClick={addChecklistItem}>
+                <button className="btn btn-primary" type="button" disabled={!canEditTask || checklistSaving} onClick={addChecklistItem}>
                   {checklistSaving ? 'Đang thêm...' : 'Thêm'}
                 </button>
               </div>
@@ -884,12 +1469,12 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
                   checklistItems.map((item) => (
                     <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center', background: 'var(--bg-secondary)', borderRadius: 8, padding: '7px 10px' }}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                        <input type="checkbox" checked={!!item.is_done} onChange={() => toggleChecklistItem(item)} />
+                        <input type="checkbox" checked={!!item.is_done} disabled={!canEditTask} onChange={() => toggleChecklistItem(item)} />
                         <span style={{ textDecoration: item.is_done ? 'line-through' : 'none', color: item.is_done ? 'var(--text-secondary)' : 'var(--text-primary)' }}>
                           {item.title}
                         </span>
                       </label>
-                      <button className="btn btn-sm btn-danger" onClick={() => deleteChecklistItem(item.id)}><Trash2 size={12} /></button>
+                      {canEditTask && <button className="btn btn-sm btn-danger" onClick={() => deleteChecklistItem(item.id)}><Trash2 size={12} /></button>}
                     </div>
                   ))
                 )}
@@ -900,10 +1485,12 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
             <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, marginTop: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><Paperclip size={14} /> Tệp đính kèm</div>
-                <label className="btn btn-sm btn-ghost" style={{ cursor: 'pointer' }}>
-                  <Upload size={13} /> {uploading ? 'Đang tải...' : 'Tải lên'}
-                  <input type="file" hidden onChange={uploadFile} disabled={uploading} />
-                </label>
+                {canEditTask && (
+                  <label className="btn btn-sm btn-ghost" style={{ cursor: 'pointer' }}>
+                    <Upload size={13} /> {uploading ? 'Đang tải...' : 'Tải lên'}
+                    <input type="file" hidden onChange={uploadFile} disabled={uploading} />
+                  </label>
+                )}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {attachments.map((a) => (
@@ -912,7 +1499,7 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
                       {a.file_name}
                     </a>
                     <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{Math.round((a.file_size || 0) / 1024)} KB</span>
-                    <button className="btn btn-sm btn-danger" onClick={() => deleteAttachment(a.id)}><Trash2 size={12} /></button>
+                    {canEditTask && <button className="btn btn-sm btn-danger" onClick={() => deleteAttachment(a.id)}><Trash2 size={12} /></button>}
                   </div>
                 ))}
                 {!attachments.length && <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Chưa có tệp đính kèm</div>}
@@ -931,9 +1518,11 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
                     return (
                       <button
                         key={tag.id}
+                        disabled={!canEditTask}
                         onClick={() => toggleTag(tag.id)}
                         style={{
-                          padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                          padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: canEditTask ? 'pointer' : 'not-allowed',
+                          opacity: canEditTask ? 1 : 0.72,
                           border: `1px solid ${active ? tag.color_hex : 'var(--border)'}`,
                           background: active ? `${tag.color_hex}22` : 'transparent',
                           color: active ? tag.color_hex : 'var(--text-secondary)',
@@ -975,7 +1564,7 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
                     <div key={c.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, background: 'var(--bg-secondary)', borderRadius: 8, padding: '8px 10px' }}>
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                          <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'linear-gradient(135deg,var(--accent),var(--purple))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'white' }}>
+                          <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#6b7ff2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'white' }}>
                             {(userMap[c.user_id]?.full_name || 'U').charAt(0).toUpperCase()}
                           </div>
                           <span style={{ fontSize: 12, fontWeight: 600 }}>{userMap[c.user_id]?.full_name || `User #${c.user_id}`}</span>
@@ -994,7 +1583,7 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
 
         {/* ── Footer ── */}
         <div className="modal-footer" style={{ marginTop: 12 }}>
-          {!confirmDelete ? (
+          {canManage && (!confirmDelete ? (
             <button className="btn btn-danger" onClick={() => setConfirmDelete(true)}><Trash2 size={13} /> Xóa công việc</button>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1002,8 +1591,8 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
               <button className="btn btn-danger" onClick={removeTask}>Có</button>
               <button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>Không</button>
             </div>
-          )}
-          <button className="btn btn-primary" onClick={save} disabled={loading}>{loading ? 'Đang lưu...' : 'Lưu thay đổi'}</button>
+          ))}
+          <button className="btn btn-primary" onClick={save} disabled={!canEditTask || loading}>{loading ? 'Đang lưu...' : 'Lưu thay đổi'}</button>
         </div>
       </div>
     </div>
@@ -1015,6 +1604,7 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, onClose
 export default function BoardPage() {
   const { projectId } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { toasts, addToast } = useToast();
 
   const [loading, setLoading] = useState(true);
@@ -1032,6 +1622,7 @@ export default function BoardPage() {
   const [confirmColumn, setConfirmColumn] = useState(null);
   const [showMembers, setShowMembers] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [showAISummary, setShowAISummary] = useState(false);
   const [addTaskCol, setAddTaskCol] = useState(null);
   const [detailTask, setDetailTask] = useState(null);
 
@@ -1056,6 +1647,19 @@ export default function BoardPage() {
     const member = members.find((m) => m.user_id === currentUser.id);
     return member?.project_role === 'manager';
   }, [currentUser, members, project?.owner_id]);
+
+  const currentProjectMember = useMemo(
+    () => members.find((m) => m.user_id === currentUser?.id),
+    [currentUser?.id, members],
+  );
+
+  const canManageTasks = useMemo(() => (
+    canManage || Boolean(currentProjectMember?.can_manage_tasks)
+  ), [canManage, currentProjectMember?.can_manage_tasks]);
+
+  const canEditTaskCard = useCallback((task) => (
+    canManageTasks || (currentUser?.id && task.assignee_id === currentUser.id)
+  ), [canManageTasks, currentUser?.id]);
 
   const loadMembers = useCallback(async () => {
     try {
@@ -1092,7 +1696,7 @@ export default function BoardPage() {
         setSelectedBoard(null);
       }
     } catch {
-      addToast('Không thể tải project/board', 'error');
+        addToast('Không thể tải dự án hoặc bảng', 'error');
       navigate('/projects');
     } finally {
       setLoading(false);
@@ -1121,6 +1725,22 @@ export default function BoardPage() {
   useEffect(() => {
     loadBoardData();
   }, [loadBoardData]);
+
+  useEffect(() => {
+    const taskId = Number(searchParams.get('task'));
+    if (!taskId || !tasks.length || detailTask?.id === taskId) return;
+    const targetTask = tasks.find((task) => task.id === taskId);
+    if (targetTask) setDetailTask(targetTask);
+  }, [detailTask?.id, searchParams, tasks]);
+
+  const closeDetailTask = useCallback(() => {
+    setDetailTask(null);
+    if (searchParams.has('task')) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('task');
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   // Load tags for filter dropdown
   useEffect(() => {
@@ -1179,6 +1799,10 @@ export default function BoardPage() {
     try {
       const draggedTask = tasks.find((t) => t.id === taskId);
       if (!draggedTask) return;
+      if (!canEditTaskCard(draggedTask)) {
+        addToast('Bạn chỉ có thể di chuyển công việc được giao cho mình', 'error');
+        return;
+      }
 
       let colTasks = tasks.filter((t) => t.column_id === newColumnId).sort((a, b) => a.order_index - b.order_index);
       
@@ -1186,8 +1810,14 @@ export default function BoardPage() {
 
       // If moving from another column, update column_id first
       if (draggedTask.column_id !== newColumnId) {
-        await api.put(`/projects/${projectId}/tasks/${taskId}/move?new_column_id=${newColumnId}`);
-        updatedTask = { ...draggedTask, column_id: newColumnId };
+        const optimisticTask = { ...draggedTask, column_id: newColumnId };
+        setTasks((prev) => prev.map(t => t.id === taskId ? optimisticTask : t));
+        const { data: movedTask } = await api.put(
+          `/projects/${projectId}/tasks/${taskId}/move`,
+          null,
+          { params: { new_column_id: newColumnId, expected_updated_at: draggedTask.updated_at } },
+        );
+        updatedTask = movedTask || { ...draggedTask, column_id: newColumnId };
         colTasks.push(updatedTask);
         // Cập nhật tasks global state để tránh lỗi khi kéo thả nhiều lần
         setTasks((prev) => prev.map(t => t.id === taskId ? updatedTask : t));
@@ -1199,20 +1829,24 @@ export default function BoardPage() {
       if (targetTaskId) {
         const targetIndex = colTasks.findIndex((t) => t.id === targetTaskId);
         if (targetIndex !== -1) {
-          colTasks.splice(targetIndex, 0, draggedTask);
+          colTasks.splice(targetIndex, 0, updatedTask);
         } else {
-          colTasks.push(draggedTask);
+          colTasks.push(updatedTask);
         }
       } else {
-        colTasks.push(draggedTask);
+        colTasks.push(updatedTask);
       }
 
       const promises = [];
       const updatedTasks = colTasks.map((t, idx) => {
         const newOrder = idx + 1;
-        if (t.order_index !== newOrder) {
+        if (t.order_index !== newOrder && (canManageTasks || t.id === taskId)) {
           t.order_index = newOrder;
-          promises.push(api.put(`/projects/${projectId}/tasks/${t.id}`, { order_index: newOrder }));
+          const payload = { order_index: newOrder };
+          if (t.id === taskId) {
+            payload.expected_updated_at = t.updated_at;
+          }
+          promises.push(api.put(`/projects/${projectId}/tasks/${t.id}`, payload));
         }
         return t;
       });
@@ -1223,8 +1857,13 @@ export default function BoardPage() {
       });
 
       await Promise.all(promises);
+      loadBoardData();
     } catch (err) {
-      addToast(err.response?.data?.detail || 'Di chuyển công việc thất bại', 'error');
+      if (err.response?.status === 409) {
+        addToast('Bảng vừa được người khác cập nhật. Hệ thống đã tải lại dữ liệu mới.', 'error');
+      } else {
+        addToast(err.response?.data?.detail || 'Di chuyển công việc thất bại', 'error');
+      }
       loadBoardData(); // Reload to revert optimistic update
     }
   };
@@ -1295,7 +1934,14 @@ export default function BoardPage() {
         </div>
         
         {/* Analytics Tab */}
-        <div style={{ paddingRight: 24 }}>
+        <div style={{ paddingRight: 24, display: 'flex', gap: 8 }}>
+          <button
+            className="board-tab"
+            onClick={() => setShowAISummary(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px' }}
+          >
+            <Activity size={14} /> Tổng kết
+          </button>
           <button
             className={`board-tab ${viewMode === 'analytics' ? 'active' : ''}`}
             onClick={() => setViewMode('analytics')}
@@ -1325,9 +1971,9 @@ export default function BoardPage() {
               style={{
                 display: 'flex', alignItems: 'center', gap: 5,
                 fontSize: 12, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
-                border: `1px solid ${groupByAssignee ? 'var(--purple)' : 'var(--border)'}`,
-                background: groupByAssignee ? 'rgba(167,139,250,0.1)' : 'var(--bg-card)',
-                color: groupByAssignee ? 'var(--purple)' : 'var(--text-secondary)',
+                border: `1px solid ${groupByAssignee ? 'rgba(37,99,235,0.32)' : 'var(--border)'}`,
+                background: groupByAssignee ? 'rgba(37,99,235,0.10)' : 'var(--bg-card)',
+                color: groupByAssignee ? 'var(--accent)' : 'var(--text-secondary)',
                 fontWeight: groupByAssignee ? 600 : 400,
                 whiteSpace: 'nowrap',
               }}
@@ -1375,14 +2021,14 @@ export default function BoardPage() {
                   }}>
                     <div style={{
                       width: 30, height: 30, borderRadius: '50%',
-                      background: isUnassigned ? 'var(--bg-secondary)' : 'linear-gradient(135deg, var(--accent), var(--purple))',
+                      background: isUnassigned ? 'var(--bg-secondary)' : '#6b7ff2',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: 11, fontWeight: 700, color: isUnassigned ? 'var(--text-muted)' : 'white',
                       flexShrink: 0,
                     }}>{initials}</div>
                     <span style={{ fontWeight: 700, fontSize: 14 }}>{userName}</span>
                     <span style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--bg-secondary)', padding: '2px 8px', borderRadius: 10 }}>
-                      {group.tasks.length} task
+                      {group.tasks.length} công việc
                     </span>
                   </div>
                   {/* Columns grid for this lane */}
@@ -1414,13 +2060,15 @@ export default function BoardPage() {
                                 <div
                                   key={task.id}
                                   className="task-card"
-                                  draggable
+                                  draggable={canEditTaskCard(task)}
                                   onDragStart={e => e.dataTransfer.setData('taskId', task.id)}
                                   onClick={() => setDetailTask(task)}
-                                  style={{ borderLeft: `3px solid ${PRIORITY_COLORS[task.priority] || 'var(--border)'}` }}
+                                  style={{ borderLeft: '3px solid var(--border)' }}
                                 >
-                                  <div className="task-title">{task.title}</div>
-                                  <div className="task-meta">
+                                  <div className="task-card-title" title={task.title}>
+                                    <span className="task-card-title-text">{task.title}</span>
+                                  </div>
+                                  <div className="task-card-meta">
                                     <span className={`type-badge ${TYPE_CLASSES[task.task_type] || 'type-task'}`}>
                                       {TYPE_LABELS[task.task_type] || task.task_type}
                                     </span>
@@ -1526,7 +2174,7 @@ export default function BoardPage() {
                         <div
                           key={task.id}
                           className="task-card"
-                          draggable
+                          draggable={canEditTaskCard(task)}
                           onDragStart={(e) => e.dataTransfer.setData('taskId', String(task.id))}
                           onDragOver={(e) => e.preventDefault()}
                           onDrop={(e) => {
@@ -1539,12 +2187,19 @@ export default function BoardPage() {
                           }}
                           onClick={() => setDetailTask(task)}
                         >
-                          <div className="task-card-title">{task.title}</div>
+                          <div className="task-card-title" title={task.title}>
+                            <span className="task-card-title-text">{task.title}</span>
+                          </div>
                           <div className="task-card-meta" style={{ marginBottom: 6 }}>
-                            <div className="priority-dot" style={{ background: PRIORITY_COLORS[task.priority] || '#8b949e' }} title={task.priority} />
+                            <span className={`priority-badge priority-${String(task.priority || 'Medium').toLowerCase()}`}>
+                              {PRIORITY_LABELS[task.priority] || task.priority || 'Trung bình'}
+                            </span>
                             <span className={`type-badge ${TYPE_CLASSES[task.task_type] || 'type-task'}`}>{TYPE_LABELS[task.task_type] || task.task_type}</span>
-                            {task.is_ai_generated && <Cpu size={12} color="var(--purple)" />}
-                            {isOverdue && <AlertCircle size={12} color="var(--red)" title="Quá hạn" />}
+                            {task.is_ai_generated && (
+                              <span className="ai-generated-mark" title="Được tạo tự động">
+                                <Sparkles size={11} />
+                              </span>
+                            )}
                           </div>
 
                           {/* Progress bar — luôn hiển để giữ card đồng đều */}
@@ -1628,9 +2283,17 @@ export default function BoardPage() {
           projectId={projectId}
           members={members}
           userMap={userMap}
+          currentUserId={currentUser?.id}
           onClose={() => setShowMembers(false)}
           onChanged={loadMembers}
           addToast={addToast}
+        />
+      )}
+
+      {showAISummary && (
+        <ProjectAISummaryModal
+          projectId={projectId}
+          onClose={() => setShowAISummary(false)}
         />
       )}
 
@@ -1654,7 +2317,7 @@ export default function BoardPage() {
           columnId={addTaskCol}
           members={members}
           userMap={userMap}
-          canManage={canManage}
+          canManage={canManageTasks}
           currentUser={currentUser}
           onClose={() => setAddTaskCol(null)}
           onCreated={(task) => {
@@ -1671,7 +2334,9 @@ export default function BoardPage() {
           members={members}
           userMap={userMap}
           canManage={canManage}
-          onClose={() => setDetailTask(null)}
+          canManageTasks={canManageTasks}
+          currentUser={currentUser}
+          onClose={closeDetailTask}
           onUpdated={(updated) => {
             setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
             setDetailTask(updated);

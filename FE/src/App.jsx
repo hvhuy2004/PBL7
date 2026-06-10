@@ -7,6 +7,12 @@ import TasksPage from './pages/TasksPage';
 import NotificationsPage from './pages/NotificationsPage';
 import SettingsPage from './pages/SettingsPage';
 import MembersPage from './pages/MembersPage';
+import ReportsPage from './pages/ReportsPage';
+import ActivityPage from './pages/ActivityPage';
+import TagsPage from './pages/TagsPage';
+import ArchivePage from './pages/ArchivePage';
+import MessagesPage from './pages/MessagesPage';
+import AdminPage from './pages/AdminPage';
 import ProtectedLayout from './components/ProtectedLayout';
 
 export default function App() {
@@ -22,7 +28,13 @@ export default function App() {
           <Route path="/projects"            element={<ProjectsPage />} />
           <Route path="/projects/:projectId" element={<BoardPage />} />
           <Route path="/tasks"               element={<TasksPage />} />
+          <Route path="/reports"             element={<ReportsPage />} />
+          <Route path="/activity"            element={<ActivityPage />} />
+          <Route path="/messages"            element={<MessagesPage />} />
+          <Route path="/tags"                element={<TagsPage />} />
+          <Route path="/archive"             element={<ArchivePage />} />
           <Route path="/members"             element={<MembersPage />} />
+          <Route path="/admin"               element={<AdminPage />} />
           <Route path="/notifications"       element={<NotificationsPage />} />
           <Route path="/settings"            element={<SettingsPage />} />
         </Route>

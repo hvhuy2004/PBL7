@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -9,6 +9,27 @@ from app.crud import comment as crud_comment
 
 router = APIRouter(prefix="/comments", tags=["Comments"])
 
+def _verify_task_member(task_id: int, db: Session, current_user: models.User) -> models.Task:
+    task = db.query(models.Task).filter(
+        models.Task.id == task_id,
+        models.Task.deleted_at.is_(None),
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if current_user.role == "admin":
+        return task
+    project = db.query(models.Project).filter(
+        models.Project.id == task.project_id,
+        models.Project.deleted_at.is_(None),
+    ).first()
+    is_member = db.query(models.ProjectMember).filter(
+        models.ProjectMember.project_id == task.project_id,
+        models.ProjectMember.user_id == current_user.id,
+    ).first()
+    if not project or (project.owner_id != current_user.id and not is_member):
+        raise HTTPException(status_code=403, detail="You must be a member of this project")
+    return task
+
 
 @router.post("/", response_model=schemas.CommentResponse, status_code=status.HTTP_201_CREATED)
 def create_comment(
@@ -17,6 +38,7 @@ def create_comment(
     current_user: models.User = Depends(get_current_user)
 ):
     """Bình luận vào một Task"""
+    _verify_task_member(data.task_id, db, current_user)
     return crud_comment.create_comment(db, data, user_id=current_user.id)
 
 
@@ -27,6 +49,7 @@ def get_task_comments(
     current_user: models.User = Depends(get_current_user)
 ):
     """Lấy danh sách bình luận của một Task"""
+    _verify_task_member(task_id, db, current_user)
     return crud_comment.get_task_comments(db, task_id)
 
 
@@ -37,4 +60,11 @@ def delete_comment(
     current_user: models.User = Depends(get_current_user)
 ):
     """Xóa bình luận (chỉ người tạo mới được xóa)"""
+    comment = db.query(models.Comment).filter(
+        models.Comment.id == comment_id,
+        models.Comment.deleted_at.is_(None),
+    ).first()
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    _verify_task_member(comment.task_id, db, current_user)
     crud_comment.delete_comment(db, comment_id, user_id=current_user.id)

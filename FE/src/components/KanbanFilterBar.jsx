@@ -1,124 +1,238 @@
-/**
- * KanbanFilterBar – thanh lọc task cho BoardPage.
- * Props:
- *   members:    [{user_id, ...}]
- *   userMap:    {userId: {full_name, ...}}
- *   projectTags:[{id, name, color_hex}]
- *   value:      { assignee, priority, tagId, dueSoon }
- *   onChange:   (newValue) => void
- */
-import { Filter, X } from 'lucide-react';
+import { Check, ChevronDown, Filter, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 const PRIORITY_OPTIONS = [
-  { value: 'High',   label: 'Cao',       color: '#f85149' },
-  { value: 'Medium', label: 'Trung bình', color: '#d29922' },
-  { value: 'Low',    label: 'Thấp',      color: '#3fb950' },
+  { value: 'High', label: 'Cao' },
+  { value: 'Medium', label: 'Trung bình' },
+  { value: 'Low', label: 'Thấp' },
 ];
+
+function FilterSelect({ value, placeholder, options, onChange, minWidth = 140 }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const selected = options.find((item) => String(item.value) === String(value));
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event) => {
+      if (!ref.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [open]);
+
+  const choose = (nextValue) => {
+    onChange(nextValue);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={ref} style={{ position: 'relative', minWidth }}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        style={{
+          width: '100%',
+          height: 31,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          padding: '0 10px',
+          borderRadius: 6,
+          border: `1px solid ${value ? 'var(--accent)' : 'var(--border)'}`,
+          background: value ? 'rgba(37,99,235,0.10)' : 'var(--bg-card)',
+          color: value ? 'var(--accent)' : 'var(--text-secondary)',
+          fontSize: 12,
+          fontWeight: value ? 650 : 500,
+          cursor: 'pointer',
+        }}
+      >
+        <span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+          {selected?.label || placeholder}
+        </span>
+        <ChevronDown
+          size={13}
+          style={{
+            flexShrink: 0,
+            color: 'var(--text-secondary)',
+            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform var(--transition)',
+          }}
+        />
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 36,
+            left: 0,
+            width: '100%',
+            minWidth,
+            padding: 4,
+            borderRadius: 8,
+            border: '1px solid var(--border)',
+            background: 'var(--bg-card)',
+            boxShadow: 'var(--shadow-md)',
+            zIndex: 1200,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => choose('')}
+            style={menuItemStyle(!value)}
+          >
+            <span>{placeholder}</span>
+            {!value && <Check size={13} />}
+          </button>
+          {options.map((option) => {
+            const active = String(option.value) === String(value);
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => choose(option.value)}
+                style={menuItemStyle(active)}
+              >
+                <span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                  {option.label}
+                </span>
+                {active && <Check size={13} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function menuItemStyle(active) {
+  return {
+    width: '100%',
+    height: 30,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    padding: '0 10px',
+    border: 'none',
+    borderRadius: 6,
+    background: active ? 'rgba(37,99,235,0.10)' : 'transparent',
+    color: active ? 'var(--accent)' : 'var(--text-secondary)',
+    fontSize: 12,
+    fontWeight: active ? 650 : 500,
+    textAlign: 'left',
+    cursor: 'pointer',
+  };
+}
 
 export default function KanbanFilterBar({ members, userMap, projectTags, value, onChange }) {
   const { assignee, priority, tagId, dueSoon } = value;
-
   const hasFilter = assignee || priority || tagId || dueSoon;
 
   const set = (patch) => onChange({ ...value, ...patch });
   const clear = () => onChange({ assignee: '', priority: '', tagId: '', dueSoon: false });
 
+  const assigneeOptions = members.map((member) => ({
+    value: member.user_id,
+    label: userMap[member.user_id]?.full_name || `User #${member.user_id}`,
+  }));
+
+  const tagOptions = projectTags.map((tag) => ({
+    value: tag.id,
+    label: tag.name,
+  }));
+
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      flexWrap: 'wrap',
       padding: '8px 24px',
       borderBottom: '1px solid var(--border)',
       background: 'var(--bg-secondary)',
       fontSize: 12,
+      position: 'relative',
+      zIndex: 20,
     }}>
       <Filter size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
       <span style={{ color: 'var(--text-muted)', fontSize: 12, flexShrink: 0 }}>Lọc:</span>
 
-      {/* Assignee */}
-      <select
+      <FilterSelect
         value={assignee}
-        onChange={e => set({ assignee: e.target.value })}
-        style={{
-          fontSize: 12, background: assignee ? 'rgba(79,142,247,0.1)' : 'var(--bg-card)',
-          border: `1px solid ${assignee ? 'var(--accent)' : 'var(--border)'}`,
-          borderRadius: 6, padding: '4px 8px', color: 'var(--text-primary)', cursor: 'pointer',
-        }}
-      >
-        <option value="">Người thực hiện</option>
-        {members.map(m => (
-          <option key={m.user_id} value={m.user_id}>
-            {userMap[m.user_id]?.full_name || `User #${m.user_id}`}
-          </option>
-        ))}
-      </select>
+        placeholder="Người thực hiện"
+        options={assigneeOptions}
+        onChange={(nextValue) => set({ assignee: nextValue })}
+        minWidth={160}
+      />
 
-      {/* Priority */}
-      <select
+      <FilterSelect
         value={priority}
-        onChange={e => set({ priority: e.target.value })}
-        style={{
-          fontSize: 12, background: priority ? 'rgba(79,142,247,0.1)' : 'var(--bg-card)',
-          border: `1px solid ${priority ? 'var(--accent)' : 'var(--border)'}`,
-          borderRadius: 6, padding: '4px 8px', color: 'var(--text-primary)', cursor: 'pointer',
-        }}
-      >
-        <option value="">Độ ưu tiên</option>
-        {PRIORITY_OPTIONS.map(p => (
-          <option key={p.value} value={p.value}>{p.label}</option>
-        ))}
-      </select>
+        placeholder="Độ ưu tiên"
+        options={PRIORITY_OPTIONS}
+        onChange={(nextValue) => set({ priority: nextValue })}
+        minWidth={126}
+      />
 
-      {/* Tag */}
       {projectTags.length > 0 && (
-        <select
+        <FilterSelect
           value={tagId}
-          onChange={e => set({ tagId: e.target.value })}
-          style={{
-            fontSize: 12, background: tagId ? 'rgba(79,142,247,0.1)' : 'var(--bg-card)',
-            border: `1px solid ${tagId ? 'var(--accent)' : 'var(--border)'}`,
-            borderRadius: 6, padding: '4px 8px', color: 'var(--text-primary)', cursor: 'pointer',
-          }}
-        >
-          <option value="">Nhãn (Tag)</option>
-          {projectTags.map(t => (
-            <option key={t.id} value={t.id}>{t.name}</option>
-          ))}
-        </select>
+          placeholder="Nhãn (Tag)"
+          options={tagOptions}
+          onChange={(nextValue) => set({ tagId: nextValue })}
+          minWidth={126}
+        />
       )}
 
-      {/* Due soon toggle */}
       <button
+        type="button"
         onClick={() => set({ dueSoon: !dueSoon })}
         style={{
-          fontSize: 12, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
-          border: `1px solid ${dueSoon ? '#d29922' : 'var(--border)'}`,
-          background: dueSoon ? 'rgba(210,153,34,0.1)' : 'var(--bg-card)',
-          color: dueSoon ? '#d29922' : 'var(--text-secondary)',
-          fontWeight: dueSoon ? 600 : 400,
+          height: 31,
+          fontSize: 12,
+          padding: '0 10px',
+          borderRadius: 6,
+          cursor: 'pointer',
+          border: `1px solid ${dueSoon ? 'var(--yellow)' : 'var(--border)'}`,
+          background: dueSoon ? 'rgba(210,153,34,0.12)' : 'var(--bg-card)',
+          color: dueSoon ? '#92400e' : 'var(--text-secondary)',
+          fontWeight: dueSoon ? 650 : 500,
         }}
       >
-        ⏰ Sắp đến hạn
+        Sắp đến hạn
       </button>
 
-      {/* Clear */}
       {hasFilter && (
         <button
+          type="button"
           onClick={clear}
           style={{
-            display: 'flex', alignItems: 'center', gap: 4,
-            fontSize: 12, padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
-            border: '1px solid var(--border)', background: 'var(--bg-card)',
-            color: 'var(--text-muted)',
+            height: 31,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            fontSize: 12,
+            padding: '0 9px',
+            borderRadius: 6,
+            cursor: 'pointer',
+            border: '1px solid var(--border)',
+            background: 'var(--bg-card)',
+            color: 'var(--text-secondary)',
           }}
         >
-          <X size={11} /> Xóa lọc
+          <X size={12} /> Xóa lọc
         </button>
       )}
 
-      {/* Active filter count badge */}
       {hasFilter && (
         <span style={{
-          marginLeft: 'auto', fontSize: 11, color: 'var(--accent)', fontWeight: 600,
+          marginLeft: 'auto',
+          fontSize: 11,
+          color: 'var(--accent)',
+          fontWeight: 650,
         }}>
           {[assignee, priority, tagId, dueSoon].filter(Boolean).length} bộ lọc đang bật
         </span>

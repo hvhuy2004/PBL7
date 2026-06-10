@@ -46,6 +46,12 @@ def sync_schema(engine) -> None:
         return
 
     with engine.begin() as conn:
+        if _table_exists(conn, "users"):
+            _add_column_if_missing(conn, "users", "google_sub", "VARCHAR(100) NULL UNIQUE")
+            _add_column_if_missing(conn, "users", "auth_provider", "VARCHAR(20) DEFAULT 'password'")
+            if _column_exists(conn, "users", "password_hash"):
+                conn.execute(text("ALTER TABLE users MODIFY COLUMN password_hash VARCHAR(255) NULL"))
+
         if _table_exists(conn, "projects"):
             # richer project fields
             _add_column_if_missing(conn, "projects", "owner_id", "INT NULL")
@@ -115,5 +121,40 @@ def sync_schema(engine) -> None:
         if _table_exists(conn, "projects"):
             _add_column_if_missing(conn, "projects", "deleted_at", "DATETIME NULL")
 
+        if _table_exists(conn, "project_members"):
+            _add_column_if_missing(conn, "project_members", "can_manage_tasks", "BOOLEAN DEFAULT FALSE")
+            conn.execute(
+                text(
+                    """
+                    UPDATE project_members
+                    SET can_manage_tasks = TRUE
+                    WHERE project_role = 'manager'
+                      AND (can_manage_tasks IS NULL OR can_manage_tasks = FALSE)
+                    """
+                )
+            )
+
         if _table_exists(conn, "comments"):
             _add_column_if_missing(conn, "comments", "deleted_at", "DATETIME NULL")
+
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS project_messages (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    project_id INT NOT NULL,
+                    user_id INT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    deleted_at DATETIME NULL,
+                    INDEX idx_project_messages_project_id (project_id),
+                    INDEX idx_project_messages_user_id (user_id),
+                    CONSTRAINT fk_project_messages_project
+                        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_project_messages_user
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+                """
+            )
+        )

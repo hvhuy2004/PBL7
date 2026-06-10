@@ -14,6 +14,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "4320
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def verify_password(plain_password, hashed_password):
+    if not hashed_password:
+        return False
     return pwd_context.verify(plain_password, hashed_password)
 
 def get_password_hash(password):

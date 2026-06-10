@@ -4,8 +4,9 @@ from typing import List
 
 from app import schemas, models
 from app.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_project_member
 from app.crud import tag as crud_tag
+from app.crud import task as crud_task
 
 router = APIRouter(prefix="/tags", tags=["Tags"])
 
@@ -15,7 +16,7 @@ def create_tag(
     project_id: int,
     data: schemas.TagCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(require_project_member)
 ):
     """Tạo Tag mới trong Project"""
     return crud_tag.create_tag(db, project_id, data)
@@ -25,7 +26,7 @@ def create_tag(
 def get_tags(
     project_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(require_project_member)
 ):
     """Lấy danh sách Tag của Project"""
     return crud_tag.get_tags(db, project_id)
@@ -58,7 +59,8 @@ def add_tag_to_task(
     current_user: models.User = Depends(get_current_user)
 ):
     """Gắn Tag vào Task (chỉ thành viên project)"""
-    _verify_task_member(task_id, db, current_user)
+    task = _verify_task_member(task_id, db, current_user)
+    crud_task._ensure_can_update_task(db, task, current_user.id)
     crud_tag.add_tag_to_task(db, task_id, tag_id)
     return {"message": "Tag assigned to task"}
 
@@ -71,5 +73,6 @@ def remove_tag_from_task(
     current_user: models.User = Depends(get_current_user)
 ):
     """Gỡ Tag khỏi Task (chỉ thành viên project)"""
-    _verify_task_member(task_id, db, current_user)
+    task = _verify_task_member(task_id, db, current_user)
+    crud_task._ensure_can_update_task(db, task, current_user.id)
     crud_tag.remove_tag_from_task(db, task_id, tag_id)

@@ -33,6 +33,8 @@ def change_password(
     current_user: models.User = Depends(get_current_user)
 ):
     """Đổi mật khẩu — yêu cầu xác nhận mật khẩu hiện tại"""
+    if not current_user.password_hash:
+        raise HTTPException(status_code=400, detail="Tài khoản Google chưa có mật khẩu để đổi")
     if not verify_password(data.current_password, current_user.password_hash):
         raise HTTPException(status_code=400, detail="Mật khẩu hiện tại không đúng")
     if len(data.new_password) < 6:
@@ -52,4 +54,3 @@ def get_user_by_id(user_id: int, db: Session = Depends(get_db), current_user: mo
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
-

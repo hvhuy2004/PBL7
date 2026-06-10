@@ -146,7 +146,7 @@ function CalendarView({ tasks, onTaskClick }) {
       {/* Day cells */}
       <div>
         {grid.map((week, ri) => (
-          <div key={ri} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: ri < grid.length - 1 ? '1px solid var(--border)' : 'none' }}>
+          <div key={ri} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', borderBottom: ri < grid.length - 1 ? '1px solid var(--border)' : 'none' }}>
             {week.map((day, ci) => {
               const isCurrentMonth = day >= 1 && day <= daysInMonth;
               const isToday = day === todayKey;
@@ -154,6 +154,7 @@ function CalendarView({ tasks, onTaskClick }) {
               return (
                 <div key={ci} style={{
                   minHeight: 80,
+                  minWidth: 0,
                   padding: '6px 8px',
                   borderRight: ci < 6 ? '1px solid var(--border)' : 'none',
                   background: isToday ? 'rgba(79,142,247,0.05)' : 'transparent',
@@ -168,7 +169,7 @@ function CalendarView({ tasks, onTaskClick }) {
                         color: isToday ? 'white' : ci === 0 ? 'var(--red)' : 'var(--text-primary)',
                         marginBottom: 4,
                       }}>{day}</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
                         {dayTasks.slice(0, 3).map(t => {
                           const statusStyle = getTaskStatusStyle(t);
                           return (
@@ -184,6 +185,8 @@ function CalendarView({ tasks, onTaskClick }) {
                                 borderLeft: `2px solid ${statusStyle.border}`,
                                 color: statusStyle.color,
                                 cursor: 'pointer',
+                                display: 'block',
+                                maxWidth: '100%',
                                 whiteSpace: 'nowrap',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
@@ -261,7 +264,7 @@ export default function TasksPage() {
   const overdue   = tasks.filter((t) => isOverdue(t.due_date) && t.progress_percent < 100).length;
   const completed = tasks.filter((t) => t.progress_percent === 100).length;
 
-  const handleTaskClick = (task) => navigate(`/projects/${task.project_id}`);
+  const handleTaskClick = (task) => navigate(`/projects/${task.project_id}?task=${task.id}`);
 
   return (
     <>
@@ -342,8 +345,8 @@ export default function TasksPage() {
         ) : filtered.length === 0 ? (
           <div className="empty-state">
             <div style={{ color: 'var(--text-muted)', marginBottom: 12 }}><CheckCircle2 size={52} strokeWidth={1.2} /></div>
-            <h3>{tasks.length === 0 ? 'Không có task nào được giao' : 'Không có task khớp bộ lọc'}</h3>
-            <p>{tasks.length === 0 ? 'Bạn chưa được giao task trong bất kỳ project nào' : 'Thử thay đổi bộ lọc để xem thêm'}</p>
+            <h3>{tasks.length === 0 ? 'Không có công việc nào được giao' : 'Không có công việc khớp bộ lọc'}</h3>
+            <p>{tasks.length === 0 ? 'Bạn chưa được giao công việc trong bất kỳ dự án nào' : 'Thử thay đổi bộ lọc để xem thêm'}</p>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -353,15 +356,16 @@ export default function TasksPage() {
                 <div
                   key={task.id}
                   className="card"
-                  style={{ display: 'grid', gridTemplateColumns: '12px 1fr auto', alignItems: 'center', gap: 14, cursor: 'pointer', padding: '14px 18px' }}
+                  style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr auto', alignItems: 'center', gap: 14, cursor: 'pointer', padding: '14px 18px' }}
                   onClick={() => navigate(`/projects/${task.project_id}`)}
                 >
-                  {/* Priority dot */}
-                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: PRIORITY_COLORS[task.priority] || '#8b949e' }} />
+                  <span className={`priority-badge priority-${String(task.priority || 'Medium').toLowerCase()}`} style={{ justifySelf: 'start' }}>
+                    {PRIORITY_LABELS[task.priority] || task.priority || 'Trung bình'}
+                  </span>
 
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{task.title}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{task.title}</div>
                       <span className={`type-badge ${TYPE_CLASSES[task.task_type] || 'type-task'}`} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                         {TYPE_ICONS[task.task_type]} {TYPE_LABELS[task.task_type] || task.task_type}
                       </span>

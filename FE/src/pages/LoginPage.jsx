@@ -1,21 +1,23 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api';
 import {
-  Eye, EyeOff, Mail, Lock, User,
-  Sparkles, LayoutDashboard, Users, BarChart3, AlertCircle, CheckCircle
+  AlertCircle, BarChart3, CheckCircle, Eye, EyeOff,
+  LayoutDashboard, Lock, Mail, Sparkles, User, Users,
 } from 'lucide-react';
 
-// Logo SVG đơn giản, không dùng emoji
 function LogoIcon({ size = 36 }) {
   return (
     <div style={{
-      width: size, height: size,
-      background: 'linear-gradient(135deg, #4f8ef7, #a78bfa)',
+      width: size,
+      height: size,
+      background: '#4f8ef7',
       borderRadius: 10,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      boxShadow: '0 0 20px rgba(79,142,247,0.35)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      boxShadow: 'none',
       flexShrink: 0,
     }}>
       <svg width={size * 0.55} height={size * 0.55} viewBox="0 0 24 24" fill="none">
@@ -28,68 +30,137 @@ function LogoIcon({ size = 36 }) {
 }
 
 const FEATURES = [
-  {
-    icon: Sparkles,
-    label: 'AI tự động phân loại và gợi ý task thông minh',
-    color: '#4f8ef7',
-  },
-  {
-    icon: LayoutDashboard,
-    label: 'Kanban board trực quan, dễ dàng kéo thả',
-    color: '#a78bfa',
-  },
-  {
-    icon: Users,
-    label: 'Cộng tác nhóm và phân quyền linh hoạt',
-    color: '#3fb950',
-  },
-  {
-    icon: BarChart3,
-    label: 'Báo cáo tiến độ và phân tích hiệu suất',
-    color: '#f0883e',
-  },
+  { icon: Sparkles, label: 'Tạo công việc nhanh từ mô tả tự nhiên', color: '#4f8ef7' },
+  { icon: LayoutDashboard, label: 'Kanban board trực quan, dễ kéo thả', color: '#a78bfa' },
+  { icon: Users, label: 'Cộng tác nhóm và phân quyền linh hoạt', color: '#3fb950' },
+  { icon: BarChart3, label: 'Báo cáo tiến độ và phân tích hiệu suất', color: '#f0883e' },
 ];
 
 export default function LoginPage() {
   const [mode, setMode] = useState('login');
-  const [form, setForm] = useState({ email: '', password: '', full_name: '' });
+  const [form, setForm] = useState({ email: '', password: '', confirm_password: '', full_name: '' });
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const googleButtonRef = useRef(null);
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const handleChange = e => setForm(p => ({ ...p, [e.target.name]: e.target.value }));
+  const completeLogin = useCallback(async (token) => {
+    const userRes = await api.get('/users/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    login(userRes.data, token);
+    navigate('/');
+  }, [login, navigate]);
+
+  const handleGoogleCredential = useCallback(async (response) => {
+    if (!response?.credential) {
+      setError('Không nhận được thông tin đăng nhập từ Google');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    setSuccessMsg('');
+    try {
+      const { data } = await api.post('/auth/google', { credential: response.credential });
+      await completeLogin(data.access_token);
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      setError(
+        detail === 'Google login is not configured'
+          ? 'Backend chưa cấu hình Google Client ID'
+          : detail || 'Đăng nhập Google thất bại',
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [completeLogin]);
+
+  useEffect(() => {
+    if (!googleClientId || !googleButtonRef.current) return undefined;
+
+    let cancelled = false;
+    const renderGoogleButton = () => {
+      if (cancelled || !window.google?.accounts?.id || !googleButtonRef.current) return;
+      googleButtonRef.current.innerHTML = '';
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: handleGoogleCredential,
+      });
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: 'outline',
+        size: 'large',
+        shape: 'rectangular',
+        width: 320,
+        text: 'signin_with',
+      });
+    };
+
+    if (window.google?.accounts?.id) {
+      renderGoogleButton();
+      return () => { cancelled = true; };
+    }
+
+    const existingScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+    if (existingScript) {
+      existingScript.addEventListener('load', renderGoogleButton, { once: true });
+      return () => {
+        cancelled = true;
+        existingScript.removeEventListener('load', renderGoogleButton);
+      };
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = renderGoogleButton;
+    document.head.appendChild(script);
+    return () => { cancelled = true; };
+  }, [googleClientId, handleGoogleCredential]);
+
+  const handleChange = (e) => setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setLoading(true); setError(''); setSuccessMsg('');
+    setLoading(true);
+    setError('');
+    setSuccessMsg('');
     try {
       const fd = new FormData();
       fd.append('username', form.email);
       fd.append('password', form.password);
       const { data } = await api.post('/auth/login', fd);
-      const token = data.access_token;
-      const userRes = await api.get('/users/me', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      login(userRes.data, token);
-      navigate('/');
+      await completeLogin(data.access_token);
     } catch (err) {
       const detail = err.response?.data?.detail;
       setError(
         detail === 'Invalid credentials'
           ? 'Email hoặc mật khẩu không đúng'
-          : detail || 'Đăng nhập thất bại, vui lòng thử lại'
+          : detail || 'Đăng nhập thất bại, vui lòng thử lại',
       );
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    setLoading(true); setError(''); setSuccessMsg('');
+    setLoading(true);
+    setError('');
+    setSuccessMsg('');
     try {
+      if (form.password.length < 6) {
+        setError('Mật khẩu phải có ít nhất 6 ký tự');
+        return;
+      }
+      if (form.password !== form.confirm_password) {
+        setError('Mật khẩu xác nhận không khớp');
+        return;
+      }
       await api.post('/auth/register', {
         email: form.email,
         password: form.password,
@@ -97,22 +168,23 @@ export default function LoginPage() {
       });
       setSuccessMsg('Đăng ký thành công! Bạn có thể đăng nhập ngay.');
       setMode('login');
-      setForm(p => ({ ...p, password: '', full_name: '' }));
+      setForm((prev) => ({ ...prev, password: '', confirm_password: '', full_name: '' }));
     } catch (err) {
       const detail = err.response?.data?.detail;
       setError(
         detail === 'Email already registered'
           ? 'Email này đã được đăng ký'
-          : detail || 'Đăng ký thất bại'
+          : detail || 'Đăng ký thất bại',
       );
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="auth-page">
       <div className="auth-bg" />
 
-      {/* ── Left hero ── */}
       <div className="auth-left">
         <div className="auth-hero">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 32 }}>
@@ -123,10 +195,10 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <h1>Quản lý dự án<br />với <span>sức mạnh AI</span></h1>
+          <h1>Quản lý dự án<br />và <span>tiến độ nhóm</span></h1>
           <p>
-            Hệ thống quản lý tiến độ công việc thông minh, tích hợp AI
-            giúp bạn phân loại task, dự đoán ưu tiên và tối ưu quy trình làm việc.
+            Hệ thống quản lý công việc nhóm, hỗ trợ lập kế hoạch,
+            theo dõi deadline và tạo công việc nhanh từ mô tả tự nhiên.
           </p>
 
           <div className="auth-features">
@@ -142,10 +214,8 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* ── Right form ── */}
       <div className="auth-right">
         <div className="auth-form-box">
-          {/* Logo */}
           <div className="auth-form-logo">
             <LogoIcon size={40} />
             <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: -0.5 }}>AgileAI</div>
@@ -157,29 +227,39 @@ export default function LoginPage() {
           <div className="auth-form-subtitle">
             {mode === 'login'
               ? 'Đăng nhập để tiếp tục quản lý dự án của bạn'
-              : 'Bắt đầu quản lý công việc thông minh hơn'}
+              : 'Bắt đầu quản lý công việc rõ ràng và hiệu quả hơn'}
           </div>
 
-          {/* Error banner */}
           {error && (
             <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              background: 'rgba(248,81,73,0.1)', border: '1px solid rgba(248,81,73,0.3)',
-              borderRadius: 8, padding: '10px 14px', fontSize: 13,
-              color: 'var(--red)', marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              background: 'rgba(248,81,73,0.1)',
+              border: '1px solid rgba(248,81,73,0.3)',
+              borderRadius: 8,
+              padding: '10px 14px',
+              fontSize: 13,
+              color: 'var(--red)',
+              marginBottom: 16,
             }}>
               <AlertCircle size={15} style={{ flexShrink: 0 }} />
               {error}
             </div>
           )}
 
-          {/* Success banner */}
           {successMsg && (
             <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              background: 'rgba(63,185,80,0.1)', border: '1px solid rgba(63,185,80,0.3)',
-              borderRadius: 8, padding: '10px 14px', fontSize: 13,
-              color: 'var(--green)', marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              background: 'rgba(63,185,80,0.1)',
+              border: '1px solid rgba(63,185,80,0.3)',
+              borderRadius: 8,
+              padding: '10px 14px',
+              fontSize: 13,
+              color: 'var(--green)',
+              marginBottom: 16,
             }}>
               <CheckCircle size={15} style={{ flexShrink: 0 }} />
               {successMsg}
@@ -193,7 +273,9 @@ export default function LoginPage() {
                 <div style={{ position: 'relative' }}>
                   <User size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
                   <input
-                    id="full_name" name="full_name" className="form-input"
+                    id="full_name"
+                    name="full_name"
+                    className="form-input"
                     style={{ paddingLeft: 36 }}
                     placeholder="Nguyễn Văn A"
                     value={form.full_name}
@@ -209,7 +291,10 @@ export default function LoginPage() {
               <div style={{ position: 'relative' }}>
                 <Mail size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
                 <input
-                  id="email" name="email" type="email" className="form-input"
+                  id="email"
+                  name="email"
+                  type="email"
+                  className="form-input"
                   style={{ paddingLeft: 36 }}
                   placeholder="you@example.com"
                   value={form.email}
@@ -224,7 +309,8 @@ export default function LoginPage() {
               <div style={{ position: 'relative' }}>
                 <Lock size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
                 <input
-                  id="password" name="password"
+                  id="password"
+                  name="password"
                   type={showPass ? 'text' : 'password'}
                   className="form-input"
                   style={{ paddingLeft: 36, paddingRight: 40 }}
@@ -235,17 +321,46 @@ export default function LoginPage() {
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPass(p => !p)}
+                  onClick={() => setShowPass((prev) => !prev)}
                   style={{
-                    position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                    background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer',
-                    padding: 4, display: 'flex', alignItems: 'center',
+                    position: 'absolute',
+                    right: 10,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    padding: 4,
+                    display: 'flex',
+                    alignItems: 'center',
                   }}
+                  aria-label={showPass ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                 >
                   {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
             </div>
+
+            {mode === 'register' && (
+              <div className="form-group">
+                <label className="form-label">Xác nhận mật khẩu</label>
+                <div style={{ position: 'relative' }}>
+                  <Lock size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+                  <input
+                    id="confirm_password"
+                    name="confirm_password"
+                    type={showPass ? 'text' : 'password'}
+                    className="form-input"
+                    style={{ paddingLeft: 36 }}
+                    placeholder="Nhập lại mật khẩu"
+                    value={form.confirm_password}
+                    onChange={handleChange}
+                    required
+                  />
+                </div>
+              </div>
+            )}
 
             <button
               id={mode === 'login' ? 'btn-login' : 'btn-register'}
@@ -260,6 +375,15 @@ export default function LoginPage() {
             </button>
           </form>
 
+          <div className="auth-divider">hoặc</div>
+          {googleClientId ? (
+            <div className="google-button-slot" ref={googleButtonRef} />
+          ) : (
+            <button className="btn btn-ghost google-disabled" type="button" disabled>
+              Đăng nhập Google chưa cấu hình
+            </button>
+          )}
+
           <div className="auth-switch">
             {mode === 'login' ? (
               <>
@@ -267,7 +391,12 @@ export default function LoginPage() {
                 <button
                   type="button"
                   className="auth-switch-link"
-                  onClick={() => { setMode('register'); setError(''); setSuccessMsg(''); }}
+                  onClick={() => {
+                    setMode('register');
+                    setError('');
+                    setSuccessMsg('');
+                    setForm((prev) => ({ ...prev, password: '', confirm_password: '' }));
+                  }}
                 >
                   Đăng ký ngay
                 </button>
@@ -278,7 +407,12 @@ export default function LoginPage() {
                 <button
                   type="button"
                   className="auth-switch-link"
-                  onClick={() => { setMode('login'); setError(''); setSuccessMsg(''); }}
+                  onClick={() => {
+                    setMode('login');
+                    setError('');
+                    setSuccessMsg('');
+                    setForm((prev) => ({ ...prev, confirm_password: '' }));
+                  }}
                 >
                   Đăng nhập
                 </button>
