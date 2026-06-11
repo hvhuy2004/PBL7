@@ -32,6 +32,27 @@ def get_tags(
     return crud_tag.get_tags(db, project_id)
 
 
+@router.put("/project/{project_id}/{tag_id}", response_model=schemas.TagResponse)
+def update_tag(
+    project_id: int,
+    tag_id: int,
+    data: schemas.TagUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_project_member),
+):
+    return crud_tag.update_tag(db, project_id, tag_id, data)
+
+
+@router.delete("/project/{project_id}/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_tag(
+    project_id: int,
+    tag_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_project_member),
+):
+    crud_tag.delete_tag(db, project_id, tag_id)
+
+
 def _verify_task_member(task_id: int, db: Session, current_user: models.User) -> models.Task:
     """Kiểm tra user là thành viên của project chứa task"""
     task = db.query(models.Task).filter(models.Task.id == task_id).first()

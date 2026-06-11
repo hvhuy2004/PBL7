@@ -1,6 +1,6 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useMemo, useState } from 'react';
-import { FolderKanban, Hash, Palette, Plus, Search, Tags } from 'lucide-react';
+import { FolderKanban, Hash, Palette, Pencil, Plus, Save, Search, Tags, Trash2, X } from 'lucide-react';
 import api from '../api';
 
 const COLOR_PRESETS = ['#2563eb', '#16a34a', '#ea580c', '#dc2626', '#7c3aed', '#0891b2', '#64748b'];
@@ -14,6 +14,8 @@ export default function TagsPage() {
   const [form, setForm] = useState({ name: '', color_hex: COLOR_PRESETS[0] });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({ name: '', color_hex: COLOR_PRESETS[0] });
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -84,6 +86,43 @@ export default function TagsPage() {
   };
 
   const selectedProject = projects.find((project) => String(project.id) === String(selectedProjectId));
+
+  const startEdit = (tag) => {
+    setEditingId(tag.id);
+    setEditForm({ name: tag.name, color_hex: tag.color_hex || COLOR_PRESETS[0] });
+    setError('');
+  };
+
+  const handleUpdate = async (tagId) => {
+    const name = editForm.name.trim();
+    if (!name) return setError('Tên nhãn không được để trống');
+    setSaving(true);
+    setError('');
+    try {
+      await api.put(`/tags/project/${selectedProjectId}/${tagId}`, { name, color_hex: editForm.color_hex });
+      setEditingId(null);
+      await loadProjectData(selectedProjectId);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Không cập nhật được nhãn');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (tag) => {
+    const usage = tagUsage.get(tag.id) || 0;
+    if (!confirm(`Xóa nhãn "${tag.name}"${usage ? ` khỏi ${usage} công việc` : ''}?`)) return;
+    setSaving(true);
+    setError('');
+    try {
+      await api.delete(`/tags/project/${selectedProjectId}/${tag.id}`);
+      await loadProjectData(selectedProjectId);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Không xóa được nhãn');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <>
@@ -195,15 +234,33 @@ export default function TagsPage() {
                         <div className="ops-list-icon">
                           <span className="ops-color-dot" style={{ background: tag.color_hex || '#64748b' }} />
                         </div>
-                        <div>
-                          <div className="ops-row-title">{tag.name}</div>
-                          <div className="ops-row-sub">
-                            {relatedTasks.length
-                              ? relatedTasks.map((task) => task.title).join(' · ')
-                              : 'Chưa gắn vào công việc nào'}
+                        {editingId === tag.id ? (
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <input className="form-input" value={editForm.name} onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))} />
+                            <input type="color" value={editForm.color_hex} onChange={(e) => setEditForm((p) => ({ ...p, color_hex: e.target.value }))} style={{ width: 42, height: 34 }} />
                           </div>
+                        ) : (
+                          <div>
+                            <div className="ops-row-title">{tag.name}</div>
+                            <div className="ops-row-sub">
+                              {relatedTasks.length ? relatedTasks.map((task) => task.title).join(' · ') : 'Chưa gắn vào công việc nào'}
+                            </div>
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <span className="ops-pill blue">{usage} công việc</span>
+                          {editingId === tag.id ? (
+                            <>
+                              <button className="btn btn-sm btn-primary" disabled={saving} onClick={() => handleUpdate(tag.id)} title="Lưu"><Save size={13} /></button>
+                              <button className="btn btn-sm btn-ghost" onClick={() => setEditingId(null)} title="Hủy"><X size={13} /></button>
+                            </>
+                          ) : (
+                            <>
+                              <button className="btn btn-sm btn-ghost" onClick={() => startEdit(tag)} title="Sửa nhãn"><Pencil size={13} /></button>
+                              <button className="btn btn-sm btn-danger" disabled={saving} onClick={() => handleDelete(tag)} title="Xóa nhãn"><Trash2 size={13} /></button>
+                            </>
+                          )}
                         </div>
-                        <span className="ops-pill blue">{usage} công việc</span>
                       </div>
                     );
                   })}

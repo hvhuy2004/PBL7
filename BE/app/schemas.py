@@ -98,6 +98,10 @@ class TagBase(BaseModel):
 class TagCreate(TagBase):
     pass
 
+class TagUpdate(BaseModel):
+    name: Optional[str] = None
+    color_hex: Optional[str] = None
+
 class TagResponse(TagBase):
     id: int
     project_id: int
@@ -209,6 +213,9 @@ class CommentBase(BaseModel):
 
 class CommentCreate(CommentBase):
     task_id: int
+
+class CommentUpdate(CommentBase):
+    pass
 
 class CommentResponse(CommentBase):
     id: int

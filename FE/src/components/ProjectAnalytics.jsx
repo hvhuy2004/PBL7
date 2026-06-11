@@ -65,7 +65,7 @@ export default function ProjectAnalytics({ projectId }) {
       
       {/* 7-Day Completion Trend */}
       <AnalyticsCard title="Tiến độ hoàn thành (7 ngày qua)" icon={TrendingUp}>
-        <ResponsiveContainer>
+        <ResponsiveContainer initialDimension={{ width: 600, height: 300 }}>
           <AreaChart data={trendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="colorTasks" x1="0" y1="0" x2="0" y2="1">
@@ -87,7 +87,7 @@ export default function ProjectAnalytics({ projectId }) {
 
       {/* Task Distribution by Column */}
       <AnalyticsCard title="Phân bổ theo trạng thái (Cột)" icon={BarChart2}>
-        <ResponsiveContainer>
+        <ResponsiveContainer initialDimension={{ width: 600, height: 300 }}>
           <BarChart data={columnData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
             <XAxis dataKey="name" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} dy={10} />
@@ -107,7 +107,7 @@ export default function ProjectAnalytics({ projectId }) {
 
       {/* Workload by Assignee */}
       <AnalyticsCard title="Khối lượng công việc (Thành viên)" icon={Activity}>
-        <ResponsiveContainer>
+        <ResponsiveContainer initialDimension={{ width: 600, height: 300 }}>
           <BarChart data={workloadData} layout="vertical" margin={{ top: 10, right: 30, left: 40, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
             <XAxis type="number" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
@@ -123,7 +123,7 @@ export default function ProjectAnalytics({ projectId }) {
 
       {/* Priority Distribution */}
       <AnalyticsCard title="Phân bổ theo mức ưu tiên" icon={PieChartIcon}>
-        <ResponsiveContainer>
+        <ResponsiveContainer initialDimension={{ width: 600, height: 300 }}>
           <PieChart>
             <Pie
               data={priorityData}

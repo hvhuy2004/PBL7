@@ -55,7 +55,7 @@ function DashboardDonutChart({ slices, size = 120 }) {
   );
   return (
     <div style={{ width: size, height: size, position: 'relative' }}>
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: size, height: size }}>
         <PieChart>
           <Pie
             data={slices}
@@ -92,7 +92,7 @@ function DashboardBarChart({ data, height = 120 }) {
   
   return (
     <div style={{ width: '100%', height: height + 24 }}>
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 500, height: height + 24 }}>
         <BarChart data={chartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.5} />
           <XAxis dataKey="date" stroke="var(--text-muted)" fontSize={10} tickLine={false} axisLine={false} dy={5} />

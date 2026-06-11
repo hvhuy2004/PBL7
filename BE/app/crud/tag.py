@@ -1,3 +1,4 @@
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from app import models, schemas
@@ -10,7 +11,16 @@ def create_tag(db: Session, project_id: int, data: schemas.TagCreate) -> models.
     ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    tag = models.Tag(project_id=project_id, name=data.name, color_hex=data.color_hex or "#E2E8F0")
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Tag name cannot be empty")
+    duplicate = db.query(models.Tag).filter(
+        models.Tag.project_id == project_id,
+        func.lower(models.Tag.name) == name.lower(),
+    ).first()
+    if duplicate:
+        raise HTTPException(status_code=400, detail="A tag with this name already exists")
+    tag = models.Tag(project_id=project_id, name=name, color_hex=data.color_hex or "#E2E8F0")
     db.add(tag)
     db.commit()
     db.refresh(tag)
@@ -18,7 +28,39 @@ def create_tag(db: Session, project_id: int, data: schemas.TagCreate) -> models.
 
 
 def get_tags(db: Session, project_id: int) -> list[models.Tag]:
-    return db.query(models.Tag).filter(models.Tag.project_id == project_id).all()
+    return db.query(models.Tag).filter(models.Tag.project_id == project_id).order_by(models.Tag.name).all()
+
+
+def update_tag(db: Session, project_id: int, tag_id: int, data: schemas.TagUpdate) -> models.Tag:
+    tag = db.query(models.Tag).filter(models.Tag.id == tag_id, models.Tag.project_id == project_id).first()
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    if data.name is not None:
+        name = data.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Tag name cannot be empty")
+        duplicate = db.query(models.Tag).filter(
+            models.Tag.project_id == project_id,
+            models.Tag.id != tag_id,
+            func.lower(models.Tag.name) == name.lower(),
+        ).first()
+        if duplicate:
+            raise HTTPException(status_code=400, detail="A tag with this name already exists")
+        tag.name = name
+    if data.color_hex is not None:
+        tag.color_hex = data.color_hex
+    db.commit()
+    db.refresh(tag)
+    return tag
+
+
+def delete_tag(db: Session, project_id: int, tag_id: int) -> None:
+    tag = db.query(models.Tag).filter(models.Tag.id == tag_id, models.Tag.project_id == project_id).first()
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    db.query(models.TaskTag).filter(models.TaskTag.tag_id == tag_id).delete(synchronize_session=False)
+    db.delete(tag)
+    db.commit()
 
 
 def add_tag_to_task(db: Session, task_id: int, tag_id: int) -> None:

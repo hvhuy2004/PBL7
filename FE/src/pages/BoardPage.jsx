@@ -77,6 +77,14 @@ function assigneeLabel(task, userMap) {
   return u ? u.full_name : `User #${task.assignee_id}`;
 }
 
+function renderMentionText(content) {
+  return String(content || '').split(/(@[A-Za-z0-9._-]+)/g).map((part, index) => (
+    part.startsWith('@')
+      ? <span className="comment-mention" key={`${part}-${index}`}>{part}</span>
+      : part
+  ));
+}
+
 function CreateBoardModal({ projectId, onClose, onCreated }) {
   const [form, setForm] = useState({
     name: '',
@@ -1101,6 +1109,9 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, canMana
   const [comments, setComments] = useState([]);
   const [commentInput, setCommentInput] = useState('');
   const [commentSaving, setCommentSaving] = useState(false);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState(null);
+  const [editingCommentContent, setEditingCommentContent] = useState('');
   // Tags
   const [projectTags, setProjectTags] = useState([]);
   const [taskTagIds, setTaskTagIds] = useState([]);
@@ -1215,6 +1226,50 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, canMana
     } catch (err) {
       addToast(err.response?.data?.detail || 'Xóa bình luận thất bại', 'error');
     }
+  };
+
+  const startEditingComment = (comment) => {
+    setEditingCommentId(comment.id);
+    setEditingCommentContent(comment.content);
+  };
+
+  const cancelEditingComment = () => {
+    setEditingCommentId(null);
+    setEditingCommentContent('');
+  };
+
+  const saveComment = async (commentId) => {
+    const content = editingCommentContent.trim();
+    if (!content) return;
+    setCommentSaving(true);
+    try {
+      const { data } = await api.put(`/comments/${commentId}`, { content });
+      setComments((prev) => prev.map((comment) => (comment.id === commentId ? data : comment)));
+      cancelEditingComment();
+      addToast('Đã cập nhật bình luận', 'success');
+    } catch (err) {
+      addToast(err.response?.data?.detail || 'Cập nhật bình luận thất bại', 'error');
+    } finally {
+      setCommentSaving(false);
+    }
+  };
+
+  const mentionMatch = commentInput.match(/(?:^|\s)@([A-Za-z0-9._-]*)$/);
+  const mentionQuery = (mentionMatch?.[1] || '').toLowerCase();
+  const mentionSuggestions = mentionOpen && mentionMatch
+    ? members
+      .map((member) => {
+        const user = userMap[member.user_id];
+        return user ? { ...user, token: user.email.split('@')[0] } : null;
+      })
+      .filter(Boolean)
+      .filter((user) => `${user.full_name} ${user.email} ${user.token}`.toLowerCase().includes(mentionQuery))
+      .slice(0, 6)
+    : [];
+
+  const insertMention = (user) => {
+    setCommentInput((value) => value.replace(/@([A-Za-z0-9._-]*)$/, `@${user.token} `));
+    setMentionOpen(false);
   };
 
   const loadTags = useCallback(async () => {
@@ -1543,15 +1598,31 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, canMana
                 <MessageSquare size={14} /> Bình luận
                 {comments.length > 0 && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({comments.length})</span>}
               </div>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10, position: 'relative' }}>
                 <input
                   className="form-input"
-                  placeholder="Viết bình luận..."
+                  placeholder="Viết bình luận... Gõ @ để nhắc thành viên"
                   value={commentInput}
-                  onChange={(e) => setCommentInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && addComment()}
+                  onChange={(e) => {
+                    setCommentInput(e.target.value);
+                    setMentionOpen(/(?:^|\s)@[A-Za-z0-9._-]*$/.test(e.target.value));
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') return setMentionOpen(false);
+                    if (e.key === 'Enter' && !e.shiftKey && !mentionSuggestions.length) addComment();
+                  }}
                   style={{ flex: 1 }}
                 />
+                {mentionSuggestions.length > 0 && (
+                  <div className="mention-menu">
+                    {mentionSuggestions.map((user) => (
+                      <button type="button" key={user.id} className="mention-option" onClick={() => insertMention(user)}>
+                        <span className="mention-avatar">{user.full_name?.charAt(0).toUpperCase()}</span>
+                        <span><strong>{user.full_name}</strong><small>@{user.token} · {user.email}</small></span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button className="btn btn-primary" type="button" disabled={commentSaving || !commentInput.trim()} onClick={addComment}>
                   <Send size={13} />
                 </button>
@@ -1570,9 +1641,36 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, canMana
                           <span style={{ fontSize: 12, fontWeight: 600 }}>{userMap[c.user_id]?.full_name || `User #${c.user_id}`}</span>
                           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{new Date(c.created_at).toLocaleString('vi-VN')}</span>
                         </div>
-                        <div style={{ fontSize: 13, color: 'var(--text-primary)', paddingLeft: 28 }}>{c.content}</div>
+                        {editingCommentId === c.id ? (
+                          <div className="comment-edit" style={{ paddingLeft: 28 }}>
+                            <textarea
+                              className="form-input"
+                              rows={2}
+                              value={editingCommentContent}
+                              onChange={(e) => setEditingCommentContent(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Escape') cancelEditingComment();
+                                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveComment(c.id);
+                              }}
+                              autoFocus
+                            />
+                            <div className="comment-actions">
+                              <button className="btn btn-sm btn-ghost" type="button" onClick={cancelEditingComment}>Hủy</button>
+                              <button className="btn btn-sm btn-primary" type="button" disabled={commentSaving || !editingCommentContent.trim()} onClick={() => saveComment(c.id)}>Lưu</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 13, color: 'var(--text-primary)', paddingLeft: 28, whiteSpace: 'pre-wrap' }}>
+                            {renderMentionText(c.content)}
+                          </div>
+                        )}
                       </div>
-                      <button className="btn btn-sm btn-danger" onClick={() => deleteComment(c.id)}><Trash2 size={12} /></button>
+                      {c.user_id === currentUser?.id && editingCommentId !== c.id && (
+                        <div className="comment-actions">
+                          <button className="btn btn-sm btn-ghost" title="Sửa bình luận" onClick={() => startEditingComment(c)}><Edit3 size={12} /></button>
+                          <button className="btn btn-sm btn-danger" title="Xóa bình luận" onClick={() => deleteComment(c.id)}><Trash2 size={12} /></button>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}

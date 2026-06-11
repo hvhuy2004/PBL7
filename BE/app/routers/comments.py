@@ -53,6 +53,24 @@ def get_task_comments(
     return crud_comment.get_task_comments(db, task_id)
 
 
+@router.put("/{comment_id}", response_model=schemas.CommentResponse)
+def update_comment(
+    comment_id: int,
+    data: schemas.CommentUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Sua binh luan (chi nguoi tao moi duoc sua)."""
+    comment = db.query(models.Comment).filter(
+        models.Comment.id == comment_id,
+        models.Comment.deleted_at.is_(None),
+    ).first()
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    _verify_task_member(comment.task_id, db, current_user)
+    return crud_comment.update_comment(db, comment_id, data.content, current_user.id)
+
+
 @router.delete("/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_comment(
     comment_id: int,

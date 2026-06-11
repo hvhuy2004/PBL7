@@ -58,12 +58,15 @@ def create_comment(db: Session, data: schemas.CommentCreate, user_id: int) -> mo
         )
         notified_ids.add(task.reporter_id)
 
-    # -- Notify @mentioned users (match by email prefix since no username field) --
-    mentions = re.findall(r'@(\w+)', data.content)
+    # The UI inserts the email prefix as a stable mention token.
+    mentions = re.findall(r'@([A-Za-z0-9._-]+)', data.content)
     for mention_token in set(mentions):
-        # Try matching by email prefix (part before @) e.g. @john matches john@company.com
-        mentioned_user = db.query(models.User).filter(
-            models.User.email.like(f"{mention_token}@%")
+        mentioned_user = db.query(models.User).join(
+            models.ProjectMember,
+            models.ProjectMember.user_id == models.User.id,
+        ).filter(
+            models.ProjectMember.project_id == task.project_id,
+            models.User.email.like(f"{mention_token}@%"),
         ).first()
         if mentioned_user and mentioned_user.id not in notified_ids:
             push_notification(
@@ -85,6 +88,26 @@ def get_task_comments(db: Session, task_id: int) -> list[models.Comment]:
         models.Comment.task_id == task_id,
         models.Comment.deleted_at.is_(None),
     ).order_by(models.Comment.created_at).all()
+
+
+def update_comment(db: Session, comment_id: int, content: str, user_id: int) -> models.Comment:
+    comment = db.query(models.Comment).filter(
+        models.Comment.id == comment_id,
+        models.Comment.deleted_at.is_(None),
+    ).first()
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    if comment.user_id != user_id:
+        raise HTTPException(status_code=403, detail="You can only edit your own comments")
+
+    cleaned_content = content.strip()
+    if not cleaned_content:
+        raise HTTPException(status_code=400, detail="Comment content cannot be empty")
+
+    comment.content = cleaned_content
+    db.commit()
+    db.refresh(comment)
+    return comment
 
 
 def delete_comment(db: Session, comment_id: int, user_id: int) -> None:
