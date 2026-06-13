@@ -654,6 +654,17 @@ def _strip_vietnamese_accents(value: str) -> str:
 
 def _infer_vietnamese_due_date(prompt: str, now: datetime) -> datetime | None:
     text = _strip_vietnamese_accents(prompt).lower()
+    relative_days = [
+        (r"\bngay kia\b", 2),
+        (r"\bngay mai\b", 1),
+        (r"\bmai\b", 1),
+        (r"\bhom nay\b", 0),
+    ]
+    for pattern, days_ahead in relative_days:
+        if re.search(pattern, text):
+            target_date = now.date() + timedelta(days=days_ahead)
+            return datetime.combine(target_date, datetime_time(23, 59, 59), tzinfo=now.tzinfo)
+
     if "tuan nay" in text and not any(token in text for token in ["thu 2", "thu hai", "thu 3", "thu ba", "thu 4", "thu tu", "thu 5", "thu nam", "thu 6", "thu sau", "thu 7", "thu bay", "chu nhat", "cn"]):
         target_date = now.date() + timedelta(days=6 - now.weekday())
         return datetime.combine(target_date, datetime_time(23, 59, 59), tzinfo=now.tzinfo)
@@ -1282,6 +1293,41 @@ def _looks_like_single_task_prompt(prompt: str) -> bool:
     return any(token in text for token in ["tao task", "tao mot task", "them task", "tao cong viec", "them cong viec"])
 
 
+def _has_task_intent(prompt: str) -> bool:
+    text = _strip_vietnamese_accents(prompt).lower()
+    explicit_task_signals = ["task", "cong viec", "backlog", "sprint"]
+    action_signals = [
+        "tao", "them", "sua", "xoa", "kiem thu", "test", "fix", "bug", "loi", "crud",
+        "thiet ke", "xay dung", "phat trien", "hoan thien", "viet", "bao cao",
+        "api", "database", "frontend", "backend", "ui", "dang nhap", "dang ky",
+        "deploy", "tich hop", "toi uu", "nang cap", "phan ra", "chia",
+        "lam", "nhac", "hop", "gui", "review", "chuan bi", "theo doi", "cap nhat",
+        "nghien cuu", "phan tich",
+    ]
+    return any(signal in text for signal in explicit_task_signals + action_signals)
+
+
+def _semantic_title_key(title: str) -> set[str]:
+    text = _strip_vietnamese_accents(title).lower()
+    tokens = re.findall(r"[a-z0-9]+", text)
+    stop_words = {"tao", "xay", "dung", "thuc", "hien", "viet", "cho", "chuc", "nang"}
+    return {token for token in tokens if token not in stop_words}
+
+
+def _is_semantic_duplicate(title: str, existing_titles: list[str]) -> bool:
+    candidate = _semantic_title_key(title)
+    if not candidate:
+        return False
+    for existing in existing_titles:
+        other = _semantic_title_key(existing)
+        if not other:
+            continue
+        similarity = len(candidate & other) / len(candidate | other)
+        if similarity >= 0.65:
+            return True
+    return False
+
+
 def _pick_single_requested_draft(
     drafts: list[schemas.AITaskParseResponse],
     prompt: str,
@@ -1576,6 +1622,8 @@ def parse_task_prompt(
     prompt = data.prompt.strip()
     if len(prompt) < 8:
         raise HTTPException(status_code=400, detail="Hay nhap mo ta task ro hon")
+    if not _has_task_intent(prompt):
+        raise HTTPException(status_code=400, detail="Mô tả chưa thể hiện một công việc cần thực hiện")
 
     members = _project_member_context(db, project_id)
     member_ids = {m["id"] for m in members}
@@ -1665,6 +1713,8 @@ def parse_task_backlog_prompt(
     prompt = data.prompt.strip()
     if len(prompt) < 8:
         raise HTTPException(status_code=400, detail="Hay nhap mo ta backlog ro hon")
+    if not _has_task_intent(prompt):
+        raise HTTPException(status_code=400, detail="Mô tả chưa thể hiện backlog hoặc công việc cần thực hiện")
 
     members = _project_member_context(db, project_id)
     member_ids = {m["id"] for m in members}
@@ -1752,6 +1802,7 @@ def parse_task_backlog_prompt(
 
     drafts = []
     seen_titles = set()
+    accepted_titles = []
     for raw in raw_tasks[:8]:
         draft = _normalize_task_draft(
             raw,
@@ -1763,9 +1814,10 @@ def parse_task_backlog_prompt(
         if not draft:
             continue
         title_key = _strip_vietnamese_accents(draft.title).lower().strip()
-        if title_key in seen_titles:
+        if title_key in seen_titles or _is_semantic_duplicate(draft.title, accepted_titles):
             continue
         seen_titles.add(title_key)
+        accepted_titles.append(draft.title)
         drafts.append(draft)
 
     if not drafts:
