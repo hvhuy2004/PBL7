@@ -908,13 +908,21 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 .priority-medium { background: var(--yellow); }
 .priority-high { background: var(--red); }
 .priority-badge {
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 74px;
+  min-height: 28px;
+  font-size: 11px;
   font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 4px;
+  line-height: 1;
+  padding: 5px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
   background: rgba(139,148,158,0.12);
   color: #526071;
   border: 1px solid rgba(139,148,158,0.22);
+  vertical-align: middle;
 }
 .priority-badge.priority-low {
   background: rgba(63,185,80,0.10);

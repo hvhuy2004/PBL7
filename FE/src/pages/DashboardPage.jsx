@@ -154,6 +154,21 @@ export default function DashboardPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  useEffect(() => {
+    const handleRefresh = () => {
+      if (!document.hidden) {
+        loadData();
+      }
+    };
+
+    window.addEventListener('focus', handleRefresh);
+    document.addEventListener('visibilitychange', handleRefresh);
+    return () => {
+      window.removeEventListener('focus', handleRefresh);
+      document.removeEventListener('visibilitychange', handleRefresh);
+    };
+  }, [loadData]);
+
   const active    = projects.filter(p => p.status === 'Active').length;
   const completed = projects.filter(p => p.status === 'Completed').length;
   const onHold    = projects.filter(p => p.status === 'On Hold').length;

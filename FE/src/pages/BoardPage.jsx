@@ -77,6 +77,23 @@ function assigneeLabel(task, userMap) {
   return u ? u.full_name : `User #${task.assignee_id}`;
 }
 
+function hexToRgb(hex) {
+  const safeHex = String(hex || '').replace('#', '').trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(safeHex)) return null;
+  return {
+    r: parseInt(safeHex.slice(0, 2), 16),
+    g: parseInt(safeHex.slice(2, 4), 16),
+    b: parseInt(safeHex.slice(4, 6), 16),
+  };
+}
+
+function getReadableTextColor(hex) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return '#172033';
+  const brightness = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000;
+  return brightness > 170 ? '#172033' : '#ffffff';
+}
+
 function renderMentionText(content) {
   return String(content || '').split(/(@[A-Za-z0-9._-]+)/g).map((part, index) => (
     part.startsWith('@')
@@ -1579,8 +1596,9 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, canMana
                           padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: canEditTask ? 'pointer' : 'not-allowed',
                           opacity: canEditTask ? 1 : 0.72,
                           border: `1px solid ${active ? tag.color_hex : 'var(--border)'}`,
-                          background: active ? `${tag.color_hex}22` : 'transparent',
-                          color: active ? tag.color_hex : 'var(--text-secondary)',
+                          background: active ? tag.color_hex : 'transparent',
+                          color: active ? getReadableTextColor(tag.color_hex) : 'var(--text-secondary)',
+                          boxShadow: active ? 'inset 0 0 0 1px rgba(255,255,255,0.18)' : 'none',
                           transition: 'all 0.15s',
                         }}
                       >

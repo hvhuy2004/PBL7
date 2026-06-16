@@ -356,10 +356,13 @@ export default function TasksPage() {
                 <div
                   key={task.id}
                   className="card"
-                  style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr auto', alignItems: 'center', gap: 14, cursor: 'pointer', padding: '14px 18px' }}
+                  style={{ display: 'grid', gridTemplateColumns: 'max-content minmax(0, 1fr) auto', alignItems: 'start', gap: 14, cursor: 'pointer', padding: '14px 18px' }}
                   onClick={() => navigate(`/projects/${task.project_id}`)}
                 >
-                  <span className={`priority-badge priority-${String(task.priority || 'Medium').toLowerCase()}`} style={{ justifySelf: 'start' }}>
+                  <span
+                    className={`priority-badge priority-${String(task.priority || 'Medium').toLowerCase()}`}
+                    style={{ justifySelf: 'start', alignSelf: 'start', marginTop: 2 }}
+                  >
                     {PRIORITY_LABELS[task.priority] || task.priority || 'Trung bình'}
                   </span>
 

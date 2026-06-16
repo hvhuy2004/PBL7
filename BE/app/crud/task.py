@@ -240,11 +240,19 @@ def move_task(
 ) -> models.Task:
     _ensure_can_update_task(db, task, user_id)
     _ensure_task_not_stale(task, expected_updated_at)
-    _ensure_column_in_project(db, new_column_id, task.project_id)
+    target_column = _ensure_column_in_project(db, new_column_id, task.project_id)
     if new_column_id != task.column_id:
         _ensure_column_wip_allows_one_more_task(db, new_column_id, task.project_id)
     old_col = str(task.column_id)
     task.column_id = new_column_id
+
+    # Đồng bộ trạng thái hoàn thành khi kéo task vào / ra cột Done.
+    if target_column.is_done:
+        task.progress_percent = 100
+        if task.completed_at is None:
+            task.completed_at = _utcnow()
+    elif task.progress_percent >= 100:
+        task.completed_at = None
 
     _log(db, project_id=task.project_id, user_id=user_id,
          action_type="MOVED_TASK", entity_id=task.id,
