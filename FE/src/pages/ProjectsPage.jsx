@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useToast, ToastContainer } from '../hooks/useToast';
 import ArchivedProjectsModal from '../components/ArchivedProjectsModal';
+import { fetchMyProjects, readProjectsCache, writeProjectsCache } from '../utils/projectCache';
 
 const PROJECT_ICONS = [Layers, Activity, FolderOpen, CheckCircle2, Layers, Activity];
 
@@ -297,8 +298,14 @@ export default function ProjectsPage() {
   const { toasts, addToast } = useToast();
 
   useEffect(() => {
-    api.get('/projects/me')
-      .then(r => setProjects(r.data || []))
+    const cached = readProjectsCache();
+    if (cached.length) {
+      setProjects(cached);
+      setLoading(false);
+    }
+
+    fetchMyProjects({ preferCache: false })
+      .then(({ items }) => setProjects(items || []))
       .catch(() => addToast('Không tải được danh sách dự án', 'error'))
       .finally(() => setLoading(false));
 
@@ -310,7 +317,11 @@ export default function ProjectsPage() {
   const handleDelete = async (id) => {
     try {
       await api.delete(`/projects/${id}`);
-      setProjects(p => p.filter(x => x.id !== id));
+      setProjects((p) => {
+        const next = p.filter((x) => x.id !== id);
+        writeProjectsCache(next);
+        return next;
+      });
       addToast('Đã xóa dự án', 'success');
     } catch (err) {
       addToast(err.response?.data?.detail || 'Xóa thất bại', 'error');

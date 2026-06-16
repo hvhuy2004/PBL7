@@ -8,6 +8,7 @@ import {
   BarChart3, History, Tags, Archive, MessageSquare, ShieldCheck,
 } from 'lucide-react';
 import api from '../api';
+import { resolveMediaUrl } from '../utils/media';
 
 function SidebarLogo() {
   return (
@@ -60,7 +61,7 @@ export default function Sidebar() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const navItems = [
+  const userNavItems = [
     {
       id: 'dash',
       icon: LayoutDashboard,
@@ -130,18 +131,19 @@ export default function Sidebar() {
     },
   ];
 
-  if (user?.role === 'admin') {
-    navItems.push({
+  const navItems = user?.role === 'admin'
+    ? [{
       id: 'admin',
       icon: ShieldCheck,
       label: 'Quản trị',
       to: { pathname: '/admin' },
       match: (loc) => loc.pathname.startsWith('/admin'),
-    });
-  }
+    }]
+    : userNavItems;
 
   const initials = user?.full_name
     ?.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2) || 'U';
+  const avatarUrl = resolveMediaUrl(user?.avatar_url);
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
@@ -168,36 +170,40 @@ export default function Sidebar() {
           </div>
         ))}
 
-        <div className="nav-section-label">Dữ liệu</div>
+        {user?.role !== 'admin' && (
+          <>
+            <div className="nav-section-label">Dữ liệu</div>
 
-        <div
-          className={`nav-item ${location.pathname.startsWith('/archive') ? 'active' : ''}`}
-          onClick={() => navigate('/archive')}
-        >
-          <Archive className="nav-icon" size={18} />
-          <span>Lưu trữ</span>
-        </div>
+            <div
+              className={`nav-item ${location.pathname.startsWith('/archive') ? 'active' : ''}`}
+              onClick={() => navigate('/archive')}
+            >
+              <Archive className="nav-icon" size={18} />
+              <span>Lưu trữ</span>
+            </div>
 
-        <div className="nav-section-label">Cài đặt</div>
+            <div className="nav-section-label">Cài đặt</div>
 
-        <div
-          className={`nav-item ${location.pathname.startsWith('/notifications') ? 'active' : ''}`}
-          onClick={() => navigate('/notifications')}
-        >
-          <Bell className="nav-icon" size={18} />
-          <span>Thông báo</span>
-          {unreadCount > 0 && (
-            <span className="nav-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
-          )}
-        </div>
+            <div
+              className={`nav-item ${location.pathname.startsWith('/notifications') ? 'active' : ''}`}
+              onClick={() => navigate('/notifications')}
+            >
+              <Bell className="nav-icon" size={18} />
+              <span>Thông báo</span>
+              {unreadCount > 0 && (
+                <span className="nav-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+              )}
+            </div>
 
-        <div
-          className={`nav-item ${location.pathname.startsWith('/settings') ? 'active' : ''}`}
-          onClick={() => navigate('/settings')}
-        >
-          <Settings className="nav-icon" size={18} />
-          <span>Cài đặt</span>
-        </div>
+            <div
+              className={`nav-item ${location.pathname.startsWith('/settings') ? 'active' : ''}`}
+              onClick={() => navigate('/settings')}
+            >
+              <Settings className="nav-icon" size={18} />
+              <span>Cài đặt</span>
+            </div>
+          </>
+        )}
       </nav>
 
       <div className="sidebar-footer" ref={menuRef}>
@@ -212,7 +218,11 @@ export default function Sidebar() {
           </div>
         )}
         <div className="user-card" onClick={() => setShowUserMenu(!showUserMenu)}>
-          <div className="avatar">{initials}</div>
+          {avatarUrl ? (
+            <img className="avatar avatar-image" src={avatarUrl} alt={user?.full_name || 'User'} />
+          ) : (
+            <div className="avatar">{initials}</div>
+          )}
           <div className="user-info">
             <div className="user-name">{user?.full_name || 'User'}</div>
             <div className="user-role">{user?.role || 'member'}</div>

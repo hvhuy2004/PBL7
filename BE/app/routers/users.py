@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import os
+import shutil
+import uuid
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 from typing import List
 from app import schemas, models
@@ -7,6 +10,11 @@ from app.core.deps import get_current_user
 from app.core.security import verify_password, get_password_hash
 
 router = APIRouter(prefix="/users", tags=["Users"])
+
+AVATAR_DIR = os.path.join("uploads", "avatars")
+os.makedirs(AVATAR_DIR, exist_ok=True)
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+MAX_AVATAR_SIZE = 5 * 1024 * 1024
 
 @router.get("/me", response_model=schemas.UserResponse)
 def get_me(current_user: models.User = Depends(get_current_user)):
@@ -24,6 +32,48 @@ def update_me(
         setattr(current_user, key, value)
     db.commit()
     db.refresh(current_user)
+    return current_user
+
+@router.post("/me/avatar", response_model=schemas.UserResponse)
+def upload_my_avatar(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Upload avatar image file for current user."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Please choose an image file")
+
+    content_type = (file.content_type or "").lower()
+    if content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail="Only JPG, PNG, WEBP or GIF images are supported")
+
+    file.file.seek(0, os.SEEK_END)
+    file_size = file.file.tell()
+    file.file.seek(0)
+    if file_size > MAX_AVATAR_SIZE:
+        raise HTTPException(status_code=400, detail="Avatar image must be 5MB or smaller")
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+        ext = ".jpg" if content_type == "image/jpeg" else ".png"
+
+    unique_name = f"user-{current_user.id}-{uuid.uuid4().hex}{ext}"
+    file_path = os.path.join(AVATAR_DIR, unique_name)
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    old_avatar_url = (current_user.avatar_url or "").strip()
+    current_user.avatar_url = f"/uploads/avatars/{unique_name}"
+    db.commit()
+    db.refresh(current_user)
+
+    if old_avatar_url.startswith("/uploads/avatars/"):
+        old_file_path = os.path.join("uploads", old_avatar_url.replace("/uploads/", "", 1))
+        if os.path.exists(old_file_path) and old_file_path != file_path:
+            os.remove(old_file_path)
+
     return current_user
 
 @router.put("/me/password", status_code=status.HTTP_204_NO_CONTENT)

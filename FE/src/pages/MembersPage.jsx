@@ -20,24 +20,29 @@ export default function MembersPage() {
       const projs = res.data || [];
       setProjects(projs);
 
-      const results = await Promise.all(
+      const membershipResults = await Promise.all(
         projs.map(async (p) => {
           const membRes = await api.get(`/projects/${p.id}/members`);
-          const members = membRes.data || [];
-          const userDetails = await Promise.all(
-            members.map((m) =>
-              api.get(`/users/${m.user_id}`).then((r) => r.data).catch(() => null)
-            )
-          );
-          const userMap = {};
-          userDetails.filter(Boolean).forEach((u) => { userMap[u.id] = u; });
-          return { projectId: p.id, members, userMap };
+          return { projectId: p.id, members: membRes.data || [] };
         })
       );
 
+      const uniqueUserIds = [...new Set(
+        membershipResults.flatMap(({ members }) => members.map((member) => member.user_id))
+      )];
+
+      const userDetails = await Promise.all(
+        uniqueUserIds.map((userId) =>
+          api.get(`/users/${userId}`).then((r) => r.data).catch(() => null)
+        )
+      );
+
+      const sharedUserMap = {};
+      userDetails.filter(Boolean).forEach((u) => { sharedUserMap[u.id] = u; });
+
       const map = {};
-      results.forEach(({ projectId, members, userMap }) => {
-        map[projectId] = members.map((m) => ({ ...m, user: userMap[m.user_id] }));
+      membershipResults.forEach(({ projectId, members }) => {
+        map[projectId] = members.map((m) => ({ ...m, user: sharedUserMap[m.user_id] }));
       });
       setMembersMap(map);
     })

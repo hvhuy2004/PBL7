@@ -388,11 +388,11 @@ def seed_database() -> dict:
             "manager": add_user(db, "Nguyễn An", "demo.manager@agileai-demo.com"),
             "huy": add_user(db, "Huy Huỳnh", "huy.huynh@agileai-demo.com"),
             "an": add_user(db, "An Trần", "an.tran@agileai-demo.com"),
-            "linh": add_user(db, "Linh Tester", "linh.tester@agileai-demo.com"),
-            "minh": add_user(db, "Minh Thiết kế", "minh.designer@agileai-demo.com"),
-            "khoa": add_user(db, "Khoa Backend", "khoa.backend@agileai-demo.com"),
-            "trang": add_user(db, "Trang Nội dung", "trang.content@agileai-demo.com"),
-            "phuc": add_user(db, "Phúc QA", "phuc.qa@agileai-demo.com"),
+            "linh": add_user(db, "Linh Nguyễn", "linh.tester@agileai-demo.com"),
+            "minh": add_user(db, "Minh Phạm", "minh.designer@agileai-demo.com"),
+            "khoa": add_user(db, "Khoa Trần", "khoa.backend@agileai-demo.com"),
+            "trang": add_user(db, "Trang Lê", "trang.content@agileai-demo.com"),
+            "phuc": add_user(db, "Phúc Hoàng", "phuc.qa@agileai-demo.com"),
         }
 
         stats = {"users": len(users), "projects": 0, "boards": 0, "tasks": 0}

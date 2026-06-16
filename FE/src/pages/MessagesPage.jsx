@@ -4,6 +4,7 @@ import { Send, MessageSquare, RefreshCw, Trash2, FolderKanban } from 'lucide-rea
 import { useSearchParams } from 'react-router-dom';
 import api, { toWebSocketUrl } from '../api';
 import { useAuth } from '../contexts/AuthContext';
+import { resolveMediaUrl } from '../utils/media';
 
 function initials(name) {
   return (name || 'U')
@@ -16,8 +17,9 @@ function initials(name) {
 }
 
 function MessageAvatar({ message }) {
-  if (message.user_avatar_url) {
-    return <img className="message-avatar" src={message.user_avatar_url} alt={message.user_name} />;
+  const avatarUrl = resolveMediaUrl(message.user_avatar_url);
+  if (avatarUrl) {
+    return <img className="message-avatar" src={avatarUrl} alt={message.user_name} />;
   }
   return <div className="message-avatar">{initials(message.user_name)}</div>;
 }

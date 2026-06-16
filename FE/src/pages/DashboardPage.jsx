@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api';
+import { resolveMediaUrl } from '../utils/media';
 import {
   PieChart, Pie, Cell, ResponsiveContainer,
   BarChart, Bar, XAxis, Tooltip, CartesianGrid
@@ -161,6 +162,7 @@ export default function DashboardPage() {
 
   const initials = user?.full_name
     ?.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'U';
+  const avatarUrl = resolveMediaUrl(user?.avatar_url);
 
   // Stats for selected project
   const currentStats = activeStatProject ? statsMap[activeStatProject] : null;
@@ -199,9 +201,18 @@ export default function DashboardPage() {
           gap: 18,
           marginBottom: 24,
         }}>
-          <div className="avatar" style={{ width: 52, height: 52, fontSize: 20, flexShrink: 0 }}>
-            {initials}
-          </div>
+          {avatarUrl ? (
+            <img
+              className="avatar avatar-image"
+              src={avatarUrl}
+              alt={user?.full_name || 'User'}
+              style={{ width: 52, height: 52, fontSize: 20, flexShrink: 0 }}
+            />
+          ) : (
+            <div className="avatar" style={{ width: 52, height: 52, fontSize: 20, flexShrink: 0 }}>
+              {initials}
+            </div>
+          )}
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 2 }}>
               Xin chào, {user?.full_name || 'bạn'} 👋
