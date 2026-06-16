@@ -1,3 +1,5 @@
+import { API_BASE } from '../api';
+
 export function resolveMediaUrl(value) {
   const url = String(value || '').trim();
   if (!url) return '';
@@ -7,7 +9,8 @@ export function resolveMediaUrl(value) {
   }
 
   if (url.startsWith('/')) {
-    return `${window.location.origin}${url}`;
+    const apiBaseUrl = new URL(API_BASE, window.location.origin);
+    return `${apiBaseUrl.origin}${url}`;
   }
 
   return url;

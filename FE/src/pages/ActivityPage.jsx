@@ -45,12 +45,6 @@ function buildDescription(log) {
   return `${actor} - ${meta.label.toLowerCase()}`;
 }
 
-function formatValue(value) {
-  if (!value) return '-';
-  if (value === 'None') return '-';
-  return value;
-}
-
 export default function ActivityPage() {
   const [projects, setProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
@@ -199,11 +193,6 @@ export default function ActivityPage() {
                         <span className="ops-row-sub">{new Date(log.created_at).toLocaleString('vi-VN')}</span>
                       </div>
                       <div className="ops-row-title">{buildDescription(log)}</div>
-                      {(log.old_value || log.new_value) && (
-                        <div className="ops-row-sub">
-                          Trước: {formatValue(log.old_value)} · Sau: {formatValue(log.new_value)}
-                        </div>
-                      )}
                     </div>
                   );
                 })}

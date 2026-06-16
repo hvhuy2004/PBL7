@@ -1741,6 +1741,7 @@ export default function BoardPage() {
   const [showAISummary, setShowAISummary] = useState(false);
   const [addTaskCol, setAddTaskCol] = useState(null);
   const [detailTask, setDetailTask] = useState(null);
+  const dismissedTaskParamRef = useRef(null);
 
   // ── Filter & View state ──
   const [filter, setFilter] = useState({ assignee: '', priority: '', tagId: '', dueSoon: false });
@@ -1844,18 +1845,24 @@ export default function BoardPage() {
 
   useEffect(() => {
     const taskId = Number(searchParams.get('task'));
-    if (!taskId || !tasks.length || detailTask?.id === taskId) return;
+    if (!taskId) {
+      dismissedTaskParamRef.current = null;
+      return;
+    }
+    if (dismissedTaskParamRef.current === taskId || !tasks.length || detailTask?.id === taskId) return;
     const targetTask = tasks.find((task) => task.id === taskId);
     if (targetTask) setDetailTask(targetTask);
   }, [detailTask?.id, searchParams, tasks]);
 
   const closeDetailTask = useCallback(() => {
-    setDetailTask(null);
+    const currentTaskId = Number(searchParams.get('task'));
+    dismissedTaskParamRef.current = currentTaskId || null;
     if (searchParams.has('task')) {
       const nextParams = new URLSearchParams(searchParams);
       nextParams.delete('task');
       setSearchParams(nextParams, { replace: true });
     }
+    setDetailTask(null);
   }, [searchParams, setSearchParams]);
 
   // Load tags for filter dropdown

@@ -357,7 +357,7 @@ export default function TasksPage() {
                   key={task.id}
                   className="card"
                   style={{ display: 'grid', gridTemplateColumns: 'max-content minmax(0, 1fr) auto', alignItems: 'start', gap: 14, cursor: 'pointer', padding: '14px 18px' }}
-                  onClick={() => navigate(`/projects/${task.project_id}`)}
+                  onClick={() => handleTaskClick(task)}
                 >
                   <span
                     className={`priority-badge priority-${String(task.priority || 'Medium').toLowerCase()}`}

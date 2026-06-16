@@ -10,6 +10,7 @@ from app.core.deps import get_current_user, require_project_member
 from app.crud import project as crud_project
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
+VN_TIMEZONE = timezone(timedelta(hours=7))
 
 
 @router.post("/", response_model=schemas.ProjectResponse, status_code=status.HTTP_201_CREATED)
@@ -205,17 +206,19 @@ def get_project_stats(
     done = base_q.filter(models.Task.progress_percent == 100).count()
 
     # 7-day completion trend
-    today = datetime.utcnow().date()
+    today = datetime.now(VN_TIMEZONE).date()
     trend = []
     for i in range(6, -1, -1):
         day = today - timedelta(days=i)
-        day_start = datetime(day.year, day.month, day.day, 0, 0, 0)
-        day_end   = datetime(day.year, day.month, day.day, 23, 59, 59)
+        local_start = datetime(day.year, day.month, day.day, 0, 0, 0, tzinfo=VN_TIMEZONE)
+        local_end = local_start + timedelta(days=1)
+        day_start = local_start.astimezone(timezone.utc).replace(tzinfo=None)
+        day_end = local_end.astimezone(timezone.utc).replace(tzinfo=None)
         cnt = db.query(func.count(models.Task.id)).filter(
             models.Task.project_id == project_id,
             models.Task.deleted_at.is_(None),
             models.Task.completed_at >= day_start,
-            models.Task.completed_at <= day_end,
+            models.Task.completed_at < day_end,
         ).scalar() or 0
         trend.append({"date": day.strftime("%d/%m"), "count": cnt})
 
