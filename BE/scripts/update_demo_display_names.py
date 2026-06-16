@@ -10,14 +10,14 @@ from app import models  # noqa: E402
 
 
 NAME_MAPPING = {
-    "demo.manager@agileai-demo.com": "Nguyễn An",
-    "huy.huynh@agileai-demo.com": "Huy Huỳnh",
-    "an.tran@agileai-demo.com": "An Trần",
-    "linh.tester@agileai-demo.com": "Linh Nguyễn",
-    "minh.designer@agileai-demo.com": "Minh Phạm",
-    "khoa.backend@agileai-demo.com": "Khoa Trần",
-    "trang.content@agileai-demo.com": "Trang Lê",
-    "phuc.qa@agileai-demo.com": "Phúc Hoàng",
+    "demo.manager@agileai-demo.com": "Nguy\u1ec5n An",
+    "huy.huynh@agileai-demo.com": "Huy Hu\u1ef3nh",
+    "an.tran@agileai-demo.com": "An Tr\u1ea7n",
+    "linh.tester@agileai-demo.com": "Linh Nguy\u1ec5n",
+    "minh.designer@agileai-demo.com": "Minh Ph\u1ea1m",
+    "khoa.backend@agileai-demo.com": "Khoa Tr\u1ea7n",
+    "trang.content@agileai-demo.com": "Trang L\u00ea",
+    "phuc.qa@agileai-demo.com": "Ph\u00fac Ho\u00e0ng",
 }
 
 
