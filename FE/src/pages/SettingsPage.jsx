@@ -117,11 +117,25 @@ export default function SettingsPage() {
     }
   };
 
+  const uploadSelectedAvatar = async () => {
+    if (!selectedAvatarFile) return null;
+
+    const formData = new FormData();
+    formData.append('file', selectedAvatarFile);
+
+    const { data } = await api.post('/users/me/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+
+    resetSelectedFile();
+    return data;
+  };
+
   const saveProfile = async (e) => {
     e.preventDefault();
 
     const fullName = profile.full_name.trim();
-    const avatarUrl = profile.avatar_url.trim();
+    let avatarUrl = profile.avatar_url.trim();
 
     if (!fullName) {
       addToast(TEXT.emptyName, 'error');
@@ -135,10 +149,16 @@ export default function SettingsPage() {
 
     setProfileLoading(true);
     try {
+      if (selectedAvatarFile) {
+        const uploadedUser = await uploadSelectedAvatar();
+        avatarUrl = uploadedUser?.avatar_url || '';
+      }
+
       const { data } = await api.put('/users/me', {
         full_name: fullName,
         avatar_url: avatarUrl || null,
       });
+      setProfile((prev) => ({ ...prev, avatar_url: data.avatar_url || '' }));
       login(data, token);
       addToast(TEXT.profileUpdated, 'success');
     } catch (err) {
@@ -183,16 +203,10 @@ export default function SettingsPage() {
 
     setAvatarUploadLoading(true);
     try {
-      const formData = new FormData();
-      formData.append('file', selectedAvatarFile);
-
-      const { data } = await api.post('/users/me/avatar', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const data = await uploadSelectedAvatar();
 
       login(data, token);
       setProfile((prev) => ({ ...prev, avatar_url: data.avatar_url || '' }));
-      resetSelectedFile();
       addToast(TEXT.uploadSuccess, 'success');
     } catch (err) {
       addToast(err.response?.data?.detail || TEXT.uploadFailed, 'error');
