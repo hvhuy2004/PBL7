@@ -1833,6 +1833,7 @@ export default function BoardPage() {
   const [showMembers, setShowMembers] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [showAISummary, setShowAISummary] = useState(false);
+  const [showAnalyticsModal, setShowAnalyticsModal] = useState(false);
   const [addTaskCol, setAddTaskCol] = useState(null);
   const [detailTask, setDetailTask] = useState(null);
   const dismissedTaskParamRef = useRef(null);
@@ -2171,8 +2172,8 @@ export default function BoardPage() {
             <Activity size={14} /> Tổng kết
           </button>
           <button
-            className={`board-tab ${viewMode === 'analytics' ? 'active' : ''}`}
-            onClick={() => setViewMode('analytics')}
+            className={`board-tab ${showAnalyticsModal ? 'active' : ''}`}
+            onClick={() => setShowAnalyticsModal(true)}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px' }}
           >
             <BarChart3 size={14} /> Thống kê
@@ -2492,6 +2493,23 @@ export default function BoardPage() {
             addToast('Tạo bảng thành công', 'success');
           }}
         />
+      )}
+
+      {showAnalyticsModal && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setShowAnalyticsModal(false)}>
+          <div className="modal" style={{ width: 'min(980px, 94vw)', maxHeight: '90vh', overflow: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
+              <div>
+                <div className="modal-title" style={{ marginBottom: 4 }}>{'Th\u1ed1ng k\u00ea d\u1ef1 \u00e1n'}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                  {'Ph\u00e2n t\u00edch ti\u1ebfn \u0111\u1ed9, tr\u1ea1ng th\u00e1i, m\u1ee9c \u01b0u ti\u00ean v\u00e0 kh\u1ed1i l\u01b0\u1ee3ng c\u00f4ng vi\u1ec7c theo th\u00e0nh vi\u00ean.'}
+                </div>
+              </div>
+              <button className="btn-icon" onClick={() => setShowAnalyticsModal(false)}><X size={16} /></button>
+            </div>
+            <ProjectAnalytics projectId={projectId} />
+          </div>
+        </div>
       )}
 
       {showCreateColumn && selectedBoard && (
