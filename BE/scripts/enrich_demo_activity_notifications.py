@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from datetime import datetime, timedelta
 from pathlib import Path
 import sys
+
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -11,16 +14,6 @@ from app import models  # noqa: E402
 
 
 DEMO_MANAGER_EMAIL = "demo.manager@agileai-demo.com"
-DEMO_NOTIFICATION_TITLES = [
-    "Công việc sắp đến hạn",
-    "AI đã tổng kết dự án",
-    "Cảnh báo công việc tương tự",
-    "Bạn được nhắc trong bình luận",
-    "Công việc ưu tiên cao",
-    "Checklist được cập nhật",
-    "Thành viên cập nhật tiến độ",
-    "Tài liệu demo đã sẵn sàng",
-]
 
 
 def vn_now_naive() -> datetime:
@@ -47,109 +40,68 @@ def enrich_activity_times(db) -> int:
     return updated
 
 
+def task_link(db, title: str, fallback: str = "/projects") -> str:
+    task = (
+        db.query(models.Task)
+        .filter(models.Task.title == title, models.Task.deleted_at.is_(None))
+        .order_by(models.Task.id.desc())
+        .first()
+    )
+    if not task:
+        return fallback
+    return f"/projects/{task.project_id}?task={task.id}"
+
+
 def add_manager_notifications(db) -> int:
     manager = db.query(models.User).filter(models.User.email == DEMO_MANAGER_EMAIL).first()
     if not manager:
         return 0
 
-    db.query(models.Notification).filter(
-        models.Notification.user_id == manager.id,
-        (
-            models.Notification.title.in_(DEMO_NOTIFICATION_TITLES)
-            | models.Notification.title.like("[DEMO]%")
-        ),
-    ).delete(synchronize_session=False)
+    # Keep demo notifications concise and action-driven for the defense.
+    db.query(models.Notification).filter(models.Notification.user_id == manager.id).delete(synchronize_session=False)
 
-    task_rows = (
-        db.query(models.Task, models.Project)
-        .join(models.Project, models.Project.id == models.Task.project_id)
-        .filter(
-            models.Task.deleted_at.is_(None),
-            models.Project.deleted_at.is_(None),
-        )
-        .order_by(models.Task.due_date.is_(None), models.Task.due_date.asc(), models.Task.id.desc())
-        .limit(8)
-        .all()
-    )
-    task_items = [
-        {
-            "task": task,
-            "project": project,
-            "link": f"/projects/{project.id}?task={task.id}",
-        }
-        for task, project in task_rows
-    ]
-    fallback_link = "/projects"
     now = vn_now_naive()
-    demo_items = [
-        (
-            "Công việc sắp đến hạn",
-            f"{task_items[0]['task'].title if task_items else 'Chuẩn bị demo hệ thống'} cần được kiểm tra tiến độ trước buổi họp.",
-            task_items[0]["link"] if task_items else fallback_link,
-            False,
-            now - timedelta(minutes=18),
-        ),
-        (
-            "AI đã tổng kết dự án",
-            "Hệ thống vừa tạo nhận định rủi ro, workload và các hành động đề xuất cho dự án.",
-            task_items[1]["link"] if len(task_items) > 1 else fallback_link,
-            False,
-            now - timedelta(hours=1, minutes=12),
-        ),
-        (
-            "Cảnh báo công việc tương tự",
-            "Một task mới có nội dung gần giống task đã tồn tại, cần kiểm tra trước khi lưu.",
-            task_items[2]["link"] if len(task_items) > 2 else fallback_link,
-            False,
-            now - timedelta(hours=2, minutes=35),
-        ),
-        (
-            "Bạn được nhắc trong bình luận",
-            "Linh Nguyễn đã nhắc bạn rà lại kịch bản demo và checklist nghiệm thu.",
-            task_items[3]["link"] if len(task_items) > 3 else fallback_link,
-            True,
-            now - timedelta(hours=4, minutes=5),
-        ),
-        (
-            "Công việc ưu tiên cao",
-            f"{task_items[4]['task'].title if len(task_items) > 4 else 'Hoàn thiện báo cáo chương triển khai'} đang ở mức ưu tiên cao.",
-            task_items[4]["link"] if len(task_items) > 4 else fallback_link,
-            True,
-            now - timedelta(days=1, hours=1),
-        ),
-        (
-            "Checklist được cập nhật",
-            "Một mục checklist nghiệm thu vừa được hoàn thành trong dự án demo.",
-            task_items[5]["link"] if len(task_items) > 5 else fallback_link,
-            True,
-            now - timedelta(days=1, hours=3, minutes=20),
-        ),
-        (
-            "Thành viên cập nhật tiến độ",
-            "Khoa Trần đã cập nhật tiến độ task backend, bạn có thể xem lại trên bảng Kanban.",
-            task_items[6]["link"] if len(task_items) > 6 else fallback_link,
-            True,
-            now - timedelta(days=2, hours=2),
-        ),
-        (
-            "Tài liệu demo đã sẵn sàng",
-            "Trang Lê đã hoàn tất phần tài liệu hướng dẫn thao tác và ghi chú phản biện.",
-            task_items[7]["link"] if len(task_items) > 7 else fallback_link,
-            True,
-            now - timedelta(days=2, hours=5, minutes=45),
-        ),
+    items = [
+        {
+            "title": "Công việc sắp đến hạn",
+            "content": "Tổng kiểm tra dữ liệu trước ngày bảo vệ cần được rà soát tiến độ trong hôm nay.",
+            "link_url": task_link(db, "Tổng kiểm tra dữ liệu trước ngày bảo vệ", "/projects/5"),
+            "is_read": False,
+            "created_at": now - timedelta(minutes=24),
+        },
+        {
+            "title": "Bạn được nhắc trong bình luận",
+            "content": "Linh Nguyễn nhắc bạn kiểm tra lại kịch bản demo hội đồng và checklist phản biện.",
+            "link_url": task_link(db, "Chuẩn bị kịch bản demo hội đồng", "/projects/5"),
+            "is_read": False,
+            "created_at": now - timedelta(hours=1, minutes=18),
+        },
+        {
+            "title": "Checklist được cập nhật",
+            "content": "Một mục nghiệm thu của công việc kiểm thử chống trùng task bằng embedding vừa được hoàn thành.",
+            "link_url": task_link(db, "Kiểm thử chống trùng task bằng embedding", "/projects/5"),
+            "is_read": True,
+            "created_at": now - timedelta(hours=3, minutes=5),
+        },
+        {
+            "title": "Thành viên cập nhật tiến độ",
+            "content": "Khoa Trần đã cập nhật tiến độ phần Docker Compose, bạn có thể xem lại trên bảng Kanban.",
+            "link_url": task_link(db, "Đóng gói Docker Compose cho deploy", "/projects/5"),
+            "is_read": True,
+            "created_at": now - timedelta(days=1, hours=2),
+        },
+        {
+            "title": "Yêu cầu đặt lịch cần xử lý",
+            "content": "Dự án Website đặt lịch phòng học có màn hình duyệt lịch cần được kiểm tra trước khi demo.",
+            "link_url": task_link(db, "Thiết kế màn hình duyệt lịch cho quản lý", "/projects/1"),
+            "is_read": True,
+            "created_at": now - timedelta(days=1, hours=5, minutes=30),
+        },
     ]
 
-    for title, content, link_url, is_read, created_at in demo_items:
-        db.add(models.Notification(
-            user_id=manager.id,
-            title=title,
-            content=content,
-            link_url=link_url,
-            is_read=is_read,
-            created_at=created_at,
-        ))
-    return len(demo_items)
+    for item in items:
+        db.add(models.Notification(user_id=manager.id, **item))
+    return len(items)
 
 
 def main() -> None:
@@ -158,7 +110,7 @@ def main() -> None:
         notifications = add_manager_notifications(db)
         db.commit()
     print(f"Updated {updated_logs} activity log timestamps.")
-    print(f"Inserted {notifications} demo notifications for Nguyen An.")
+    print(f"Inserted {notifications} clean demo notifications for Nguyen An.")
 
 
 if __name__ == "__main__":
