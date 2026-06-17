@@ -36,7 +36,7 @@ def _safe_terminal_print(message: str) -> None:
 
 
 AUTH_INTENT_KEYWORDS = {
-    "login": {"dang nhap", "login", "jwt", "token", "credential"},
+    "login": {"dang nhap", "login", "jwt", "token", "credential", "xac thuc", "auth", "authenticate", "authentication"},
     "register": {"dang ky", "dang ki", "register", "signup", "sign up"},
     "forgot_password": {"quen mat khau", "reset password", "forgot password"},
     "oauth": {"oauth", "google"},
@@ -57,6 +57,9 @@ TASK_CORE_STOPWORDS = {
     "tao", "viet", "xay", "dung", "phat", "trien", "thiet", "ke",
     "sua", "fix", "xu", "ly", "lam", "kiem", "thu", "test", "review",
     "tich", "hop", "toi", "uu", "phan", "ra", "bao", "cao",
+    "tai", "lieu", "docs", "document", "huong", "dan",
+    "ui", "frontend", "form", "layout", "giao", "dien", "man", "hinh",
+    "hien", "thi", "danh", "sach",
 }
 
 
@@ -109,6 +112,18 @@ def _intent_tags(value: str | None) -> set[str]:
         for intent, keywords in AUTH_INTENT_KEYWORDS.items()
         if any(keyword in normalized for keyword in keywords)
     }
+
+
+def _auth_concepts(value: str | None) -> set[str]:
+    normalized = _normalize_text(value)
+    concepts: set[str] = set()
+    if any(keyword in normalized for keyword in {"dang nhap", "login", "credential"}):
+        concepts.add("login")
+    if any(keyword in normalized for keyword in {"jwt", "token", "refresh token"}):
+        concepts.add("token")
+    if any(keyword in normalized for keyword in {"xac thuc", "auth", "authenticate", "authentication"}):
+        concepts.add("auth")
+    return concepts
 
 
 def _has_conflicting_intent(new_text: str | None, existing_text: str | None) -> bool:
@@ -214,6 +229,8 @@ def _lexical_similarity(
                     + 0.05 * SequenceMatcher(None, new_title_norm, existing_title_norm).ratio()
                 )
                 scores.append(min(core_score, 0.90))
+                if core_overlap >= 3 and core_containment >= 0.75:
+                    scores.append(min(0.92, 0.86 + 0.06 * core_jaccard))
         elif core_overlap == 1 and len(core_a | core_b) <= 3:
             scores.append(0.72)
 
@@ -241,6 +258,30 @@ def _lexical_similarity(
             scores.append(0.87 + 0.04 * SequenceMatcher(None, new_title_norm, existing_title_norm).ratio())
         else:
             scores.append(0.85 + 0.04 * SequenceMatcher(None, new_title_norm, existing_title_norm).ratio())
+
+    if shared_surfaces and not conflicting_intent and not conflicting_provider:
+        shared_core = combined_core_a & combined_core_b
+        if len(shared_core) >= 3:
+            surface_core_score = 0.86 + 0.05 * min(1.0, len(shared_core) / 5)
+            if "ui" in shared_surfaces:
+                surface_core_score += 0.01
+            scores.append(min(0.92, surface_core_score))
+
+    if shared_intents and not conflicting_provider and not conflicting_surface:
+        new_auth_concepts = _auth_concepts(new_text)
+        existing_auth_concepts = _auth_concepts(existing_text)
+        auth_overlap = new_auth_concepts & existing_auth_concepts
+        new_providers = _provider_tags(new_text)
+        existing_providers = _provider_tags(existing_text)
+        oauth_mismatch = ("oauth" in _intent_tags(new_text) or "oauth" in _intent_tags(existing_text)) and (
+            "oauth" not in shared_intents or new_providers != existing_providers
+        )
+        has_strong_auth_signal = bool({"token", "auth"} & new_auth_concepts and {"token", "auth"} & existing_auth_concepts)
+        if auth_overlap and has_strong_auth_signal and not oauth_mismatch:
+            auth_score = 0.87 + 0.03 * min(1.0, len(auth_overlap) / 2)
+            if "login" in shared_intents:
+                auth_score += 0.02
+            scores.append(min(0.93, auth_score))
 
     score = min(1.0, max(scores))
     if conflicting_intent:
