@@ -272,7 +272,8 @@ def update_task(db: Session, task: models.Task, data: schemas.TaskUpdate, user_i
     next_due = update_data.get('due_date', task.due_date)
     if next_start and next_due and next_start > next_due:
         raise HTTPException(status_code=400, detail="Ngày bắt đầu không được sau ngày kết thúc")
-    if 'assignee_id' in update_data and update_data.get('assignee_id') != task.assignee_id:
+    assignee_changed = 'assignee_id' in update_data and update_data.get('assignee_id') != task.assignee_id
+    if assignee_changed:
         _ensure_assignee_allowed_for_actor(db, update_data.get('assignee_id'), task.project_id, user_id)
 
     if 'progress_percent' in update_data and update_data['progress_percent'] is not None:
@@ -291,18 +292,25 @@ def update_task(db: Session, task: models.Task, data: schemas.TaskUpdate, user_i
         total = update_data.get('checklist_total', task.checklist_total or 0)
         update_data['checklist_completed'] = min(total, max(0, update_data['checklist_completed']))
 
+    actual_changed_fields = [
+        key for key, value in update_data.items()
+        if getattr(task, key, None) != value
+    ]
+    if not actual_changed_fields:
+        return _get_task_with_tags(db, task.id)
+
     for key, value in update_data.items():
         setattr(task, key, value)
 
     # Chỉ log tên các field thay đổi để tránh vượt VARCHAR(255)
-    changed_fields = ", ".join(update_data.keys())
+    changed_fields = ", ".join(actual_changed_fields)
     _log(db, project_id=task.project_id, user_id=user_id,
          action_type="UPDATED_TASK", entity_id=task.id,
          new_value=changed_fields[:250])
 
     # Notify new assignee if assignee changed
     new_assignee_id = update_data.get('assignee_id')
-    if new_assignee_id and new_assignee_id != user_id:
+    if assignee_changed and new_assignee_id and new_assignee_id != user_id:
         project = db.query(models.Project).filter(models.Project.id == task.project_id).first()
         project_name = project.name if project else f"Project #{task.project_id}"
         push_notification(
@@ -312,6 +320,21 @@ def update_task(db: Session, task: models.Task, data: schemas.TaskUpdate, user_i
             content=f"Bạn vừa được giao: '{task.title}' trong {project_name}",
             link_url=f"/projects/{task.project_id}?task={task.id}",
         )
+    else:
+        meaningful_fields = [
+            key for key in actual_changed_fields
+            if key not in {"checklist_total", "checklist_completed", "completed_at"}
+        ]
+        if task.assignee_id and task.assignee_id != user_id and meaningful_fields:
+            actor = db.query(models.User).filter(models.User.id == user_id).first()
+            actor_name = actor.full_name if actor else f"User #{user_id}"
+            push_notification(
+                db,
+                recipient_user_id=task.assignee_id,
+                title="C\u00f4ng vi\u1ec7c \u0111\u01b0\u1ee3c c\u1eadp nh\u1eadt",
+                content=f"{actor_name} \u0111\u00e3 c\u1eadp nh\u1eadt c\u00f4ng vi\u1ec7c: '{task.title}'",
+                link_url=f"/projects/{task.project_id}?task={task.id}",
+            )
 
     db.commit()
     # Reload với eager tags để tránh lazy-load lỗi khi serialize

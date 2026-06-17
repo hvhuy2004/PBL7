@@ -119,6 +119,39 @@ def ensure_task_window(db, task_title: str) -> models.Task | None:
     return task
 
 
+def ensure_update_event(db, task_title: str, actor_email: str, assignee_email: str) -> models.Task | None:
+    task = (
+        db.query(models.Task)
+        .filter(models.Task.title == task_title, models.Task.deleted_at.is_(None))
+        .order_by(models.Task.id.desc())
+        .first()
+    )
+    actor = db.query(models.User).filter(models.User.email == actor_email).first()
+    assignee = db.query(models.User).filter(models.User.email == assignee_email).first()
+    if not task or not actor or not assignee:
+        return task
+    task.assignee_id = assignee.id
+    task.progress_percent = max(task.progress_percent or 0, 85)
+    task.updated_at = utc_now_naive() - timedelta(minutes=56)
+    exists = db.query(models.ActivityLog).filter(
+        models.ActivityLog.project_id == task.project_id,
+        models.ActivityLog.user_id == actor.id,
+        models.ActivityLog.action_type == "UPDATED_TASK",
+        models.ActivityLog.entity_id == task.id,
+        models.ActivityLog.new_value == "progress_percent, due_date",
+    ).first()
+    if not exists:
+        db.add(models.ActivityLog(
+            project_id=task.project_id,
+            user_id=actor.id,
+            action_type="UPDATED_TASK",
+            entity_id=task.id,
+            new_value="progress_percent, due_date",
+            created_at=utc_now_naive() - timedelta(minutes=56),
+        ))
+    return task
+
+
 def add_manager_notifications(db) -> int:
     manager = db.query(models.User).filter(models.User.email == DEMO_MANAGER_EMAIL).first()
     if not manager:
@@ -153,6 +186,12 @@ def add_manager_notifications(db) -> int:
         "linh.tester@agileai-demo.com",
         "M\u1ecdi ng\u01b0\u1eddi th\u1ed1ng nh\u1ea5t d\u00f9ng lu\u1ed3ng AI t\u1ea1o task v\u00e0 ch\u1ed1ng tr\u00f9ng l\u1eb7p cho ph\u1ea7n demo ch\u00ednh nh\u00e9.",
     )
+    updated_task = ensure_update_event(
+        db,
+        "T\u1ed5ng ki\u1ec3m tra d\u1eef li\u1ec7u tr\u01b0\u1edbc ng\u00e0y b\u1ea3o v\u1ec7",
+        "linh.tester@agileai-demo.com",
+        DEMO_MANAGER_EMAIL,
+    )
 
     items = [
         {
@@ -168,6 +207,13 @@ def add_manager_notifications(db) -> int:
             "link_url": f"/messages?projectId={project_message.project_id}" if project_message else "/messages",
             "is_read": False,
             "created_at": now - timedelta(minutes=42),
+        },
+        {
+            "title": "C\u00f4ng vi\u1ec7c \u0111\u01b0\u1ee3c c\u1eadp nh\u1eadt",
+            "content": "Linh Nguy\u1ec5n \u0111\u00e3 c\u1eadp nh\u1eadt ti\u1ebfn \u0111\u1ed9 v\u00e0 h\u1ea1n c\u1ee7a c\u00f4ng vi\u1ec7c b\u1ea1n \u0111ang nh\u1eadn.",
+            "link_url": f"/projects/{updated_task.project_id}?task={updated_task.id}" if updated_task else "/projects/5",
+            "is_read": False,
+            "created_at": now - timedelta(minutes=56),
         },
         {
             "title": "B\u1ea1n \u0111\u01b0\u1ee3c nh\u1eafc trong b\u00ecnh lu\u1eadn",
