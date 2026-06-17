@@ -2250,7 +2250,7 @@ export default function BoardPage() {
                           {colTasks.length}/{col.wip_limit}
                         </span>
                       )}
-                      <div className="col-count">{colTasks.length}</div>
+                      {!col.wip_limit && <div className="col-count">{colTasks.length}</div>}
                       {canManage && (
                         <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
                           {confirmColumn === col.id ? (
