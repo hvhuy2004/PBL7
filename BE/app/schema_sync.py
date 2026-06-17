@@ -118,6 +118,26 @@ def sync_schema(engine) -> None:
             _add_column_if_missing(conn, "tasks", "deleted_at", "DATETIME NULL")
             conn.execute(text("UPDATE tasks SET start_date = COALESCE(start_date, created_at)"))
 
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS task_embeddings (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    task_id INT NOT NULL UNIQUE,
+                    model VARCHAR(100) NOT NULL,
+                    text_hash VARCHAR(64) NOT NULL,
+                    vector_json TEXT NOT NULL,
+                    task_updated_at DATETIME NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_task_embeddings_task_id (task_id),
+                    CONSTRAINT fk_task_embeddings_task
+                        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                )
+                """
+            )
+        )
+
         if _table_exists(conn, "projects"):
             _add_column_if_missing(conn, "projects", "deleted_at", "DATETIME NULL")
 

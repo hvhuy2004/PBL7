@@ -1,4 +1,5 @@
 import json
+import hashlib
 import math
 import os
 import re
@@ -139,6 +140,88 @@ def _normalize_text(value: str | None) -> str:
 
 def _task_duplicate_text(title: str | None, description: str | None) -> str:
     return f"{title or ''}\n{description or ''}".strip()
+
+
+def _task_text_hash(text: str) -> str:
+    return hashlib.sha256(_normalize_text(text).encode("utf-8")).hexdigest()
+
+
+def _embedding_model_cache_key() -> str:
+    provider = os.getenv("EMBEDDING_PROVIDER", "gemini").strip().lower()
+    if os.getenv("GEMINI_API_KEY") and provider in {"", "auto", "gemini"}:
+        return f"gemini/{os.getenv('GEMINI_EMBEDDING_MODEL', 'gemini-embedding-001')}"
+    if os.getenv("OPENROUTER_API_KEY"):
+        return os.getenv("OPENROUTER_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
+    if os.getenv("OPENAI_API_KEY"):
+        return os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+    return os.getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
+
+
+def _task_timestamp_matches(stored: datetime | None, current: datetime | None) -> bool:
+    if not stored or not current:
+        return False
+    return stored.replace(microsecond=0) == current.replace(microsecond=0)
+
+
+def _parse_stored_vector(value: str | None) -> list[float] | None:
+    if not value:
+        return None
+    try:
+        vector = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(vector, list) or not vector or not all(isinstance(item, (int, float)) for item in vector):
+        return None
+    return [float(item) for item in vector]
+
+
+def _store_task_embedding(
+    db: Session,
+    task: models.Task,
+    model: str,
+    text_hash: str,
+    vector: list[float],
+) -> None:
+    row = db.query(models.TaskEmbedding).filter(models.TaskEmbedding.task_id == task.id).first()
+    if row is None:
+        row = models.TaskEmbedding(task_id=task.id)
+        db.add(row)
+    row.model = model
+    row.text_hash = text_hash
+    row.vector_json = json.dumps(vector, separators=(",", ":"))
+    row.task_updated_at = task.updated_at or datetime.utcnow()
+
+
+def _load_stored_task_vectors(
+    db: Session,
+    tasks: list[models.Task],
+) -> tuple[dict[int, list[float]], list[models.Task]]:
+    if not tasks:
+        return {}, []
+    model = _embedding_model_cache_key()
+    rows = {
+        row.task_id: row
+        for row in db.query(models.TaskEmbedding)
+        .filter(models.TaskEmbedding.task_id.in_([task.id for task in tasks]))
+        .all()
+    }
+    vectors: dict[int, list[float]] = {}
+    missing: list[models.Task] = []
+    for task in tasks:
+        text = _task_duplicate_text(task.title, task.description)
+        row = rows.get(task.id)
+        vector = _parse_stored_vector(row.vector_json if row else None)
+        if (
+            row
+            and vector
+            and row.model == model
+            and row.text_hash == _task_text_hash(text)
+            and _task_timestamp_matches(row.task_updated_at, task.updated_at)
+        ):
+            vectors[task.id] = vector
+        else:
+            missing.append(task)
+    return vectors, missing
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -750,16 +833,25 @@ def _check_duplicate_tasks_batch(
     if pending:
         unique_tasks_by_id = {task.id: task for _, _, tasks, _, _ in pending for task in tasks}
         unique_tasks = list(unique_tasks_by_id.values())
-        task_texts = [_task_duplicate_text(task.title, task.description) for task in unique_tasks]
         new_texts = [new_text for _, _, _, new_text, _ in pending]
         started_at = time.perf_counter()
         try:
-            vectors, used_model = _call_embedding_api_batched([*new_texts, *task_texts])
+            stored_task_vectors, missing_tasks = _load_stored_task_vectors(db, unique_tasks)
+            missing_task_texts = [_task_duplicate_text(task.title, task.description) for task in missing_tasks]
+            vectors, used_model = _call_embedding_api_batched([*new_texts, *missing_task_texts])
             new_vectors = vectors[:len(new_texts)]
-            task_vectors = {
-                task.id: vector
-                for task, vector in zip(unique_tasks, vectors[len(new_texts):])
-            }
+            task_vectors = dict(stored_task_vectors)
+            for task, vector in zip(missing_tasks, vectors[len(new_texts):]):
+                task_vectors[task.id] = vector
+                _store_task_embedding(
+                    db,
+                    task,
+                    used_model,
+                    _task_text_hash(_task_duplicate_text(task.title, task.description)),
+                    vector,
+                )
+            if missing_tasks:
+                db.commit()
             method = "embedding_hybrid"
             note = f"Sử dụng AI Model: {used_model}"
             for pending_pos, (index, item, tasks, new_text, cache_key) in enumerate(pending):

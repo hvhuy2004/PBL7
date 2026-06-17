@@ -152,6 +152,20 @@ class Task(Base):
     attachments = relationship("Attachment", back_populates="task", cascade="all, delete")
     tags = relationship("Tag", secondary="task_tags", back_populates="tasks")
 
+class TaskEmbedding(Base):
+    __tablename__ = "task_embeddings"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    model = Column(String(100), nullable=False)
+    text_hash = Column(String(64), nullable=False)
+    vector_json = Column(Text, nullable=False)
+    task_updated_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    task = relationship("Task")
+
 # Bảng Task_Checklist_Items
 class TaskChecklistItem(Base):
     __tablename__ = "task_checklist_items"
