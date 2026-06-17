@@ -857,6 +857,16 @@ function CreateTaskModal({ projectId, columnId, members, userMap, canManage, cur
     return data;
   };
 
+  const checkDuplicateBatch = async (payloads) => {
+    const { data } = await api.post(`/projects/${projectId}/tasks/check-duplicate-batch`, {
+      items: payloads.map((payload) => ({
+        title: payload.title,
+        description: payload.description || '',
+      })),
+    });
+    return data.items || [];
+  };
+
   const buildPayloadFromForm = () => ({
     ...form,
     assignee_id: form.assignee_id ? Number(form.assignee_id) : null,
@@ -937,7 +947,7 @@ function CreateTaskModal({ projectId, columnId, members, userMap, canManage, cur
     setBulkCreating(true);
     try {
       const payloads = drafts.map(createPayloadFromDraft);
-      const duplicateResults = await Promise.all(payloads.map((payload) => checkDuplicate(payload).catch(() => null)));
+      const duplicateResults = await checkDuplicateBatch(payloads);
       const duplicates = duplicateResults
         .map((result, index) => ({ result, draft: drafts[index], payload: payloads[index] }))
         .filter((item) => item.result?.duplicate_found);

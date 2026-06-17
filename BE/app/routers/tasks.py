@@ -26,6 +26,7 @@ DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small"
 DEFAULT_DUPLICATE_THRESHOLD = 0.88
 EMBEDDING_FAILURE_COOLDOWN_SECONDS = 300
 _embedding_disabled_until = 0.0
+_duplicate_check_cache: dict[str, tuple[float, schemas.TaskDuplicateCheckResponse]] = {}
 
 
 def _safe_terminal_print(message: str) -> None:
@@ -33,6 +34,69 @@ def _safe_terminal_print(message: str) -> None:
         print(message, flush=True)
     except (OSError, UnicodeEncodeError):
         pass
+
+
+def _duplicate_cache_ttl_seconds() -> int:
+    try:
+        ttl = int(os.getenv("TASK_DUPLICATE_CACHE_TTL_SECONDS", "300"))
+    except ValueError:
+        ttl = 300
+    return max(0, min(ttl, 1800))
+
+
+def _tasks_signature(tasks: list[models.Task]) -> str:
+    parts = [
+        f"{task.id}:{task.updated_at.isoformat() if task.updated_at else ''}"
+        for task in tasks
+    ]
+    return "|".join(parts) or "empty"
+
+
+def _duplicate_cache_key(
+    project_id: int,
+    title: str | None,
+    description: str | None,
+    exclude_task_id: int | None,
+    threshold: float,
+    tasks: list[models.Task],
+) -> str:
+    text_key = _normalize_text(_task_duplicate_text(title, description))
+    return json.dumps(
+        {
+            "project_id": project_id,
+            "text": text_key,
+            "exclude_task_id": exclude_task_id,
+            "threshold": round(threshold, 4),
+            "tasks": _tasks_signature(tasks),
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+    )
+
+
+def _get_duplicate_cache(key: str) -> schemas.TaskDuplicateCheckResponse | None:
+    ttl = _duplicate_cache_ttl_seconds()
+    if ttl <= 0:
+        return None
+    cached = _duplicate_check_cache.get(key)
+    if not cached:
+        return None
+    cached_at, response = cached
+    if time.time() - cached_at > ttl:
+        _duplicate_check_cache.pop(key, None)
+        return None
+    return response
+
+
+def _set_duplicate_cache(key: str, response: schemas.TaskDuplicateCheckResponse) -> None:
+    ttl = _duplicate_cache_ttl_seconds()
+    if ttl <= 0:
+        return
+    if len(_duplicate_check_cache) > 300:
+        oldest_keys = sorted(_duplicate_check_cache, key=lambda item: _duplicate_check_cache[item][0])[:80]
+        for old_key in oldest_keys:
+            _duplicate_check_cache.pop(old_key, None)
+    _duplicate_check_cache[key] = (time.time(), response)
 
 
 AUTH_INTENT_KEYWORDS = {
@@ -500,6 +564,44 @@ def _duplicate_candidate(task: models.Task, similarity: float) -> schemas.TaskDu
     )
 
 
+def _duplicate_response_from_scored(
+    scored: list[tuple[models.Task, float]],
+    threshold: float,
+    method: str,
+    note: str | None,
+) -> schemas.TaskDuplicateCheckResponse:
+    scored.sort(key=lambda item: item[1], reverse=True)
+    candidates = [
+        _duplicate_candidate(task, score)
+        for task, score in scored[:5]
+        if score >= max(0.35, threshold - 0.25)
+    ]
+    return schemas.TaskDuplicateCheckResponse(
+        duplicate_found=bool(candidates and candidates[0].similarity >= threshold),
+        threshold=threshold,
+        method=method,
+        candidates=candidates,
+        note=note,
+    )
+
+
+def _duplicate_result_for_short_text(threshold: float) -> schemas.TaskDuplicateCheckResponse:
+    return schemas.TaskDuplicateCheckResponse(
+        duplicate_found=False,
+        threshold=threshold,
+        method="embedding",
+        candidates=[],
+        note="Nội dung task quá ngắn để so sánh trùng lặp",
+    )
+
+
+def _active_project_tasks(db: Session, project_id: int) -> list[models.Task]:
+    return db.query(models.Task).filter(
+        models.Task.project_id == project_id,
+        models.Task.deleted_at.is_(None),
+    ).all()
+
+
 def _check_duplicate_tasks(
     db: Session,
     project_id: int,
@@ -606,6 +708,106 @@ def _check_duplicate_tasks(
     )
 
 
+def _check_duplicate_tasks_batch(
+    db: Session,
+    project_id: int,
+    items: list[schemas.TaskDuplicateCheckRequest],
+) -> schemas.TaskDuplicateBatchCheckResponse:
+    threshold = float(os.getenv("TASK_DUPLICATE_THRESHOLD", DEFAULT_DUPLICATE_THRESHOLD))
+    threshold = max(0.5, min(0.98, threshold))
+    all_tasks = _active_project_tasks(db, project_id)
+    results: list[schemas.TaskDuplicateCheckResponse | None] = [None] * len(items)
+    pending: list[tuple[int, schemas.TaskDuplicateCheckRequest, list[models.Task], str, str]] = []
+
+    for index, item in enumerate(items):
+        title = item.title.strip()
+        description = item.description or ""
+        new_text = _task_duplicate_text(title, description)
+        if len(_normalize_text(new_text)) < 4:
+            results[index] = _duplicate_result_for_short_text(threshold)
+            continue
+
+        tasks = all_tasks
+        if item.exclude_task_id:
+            tasks = [task for task in all_tasks if task.id != item.exclude_task_id]
+        cache_key = _duplicate_cache_key(project_id, title, description, item.exclude_task_id, threshold, tasks)
+        cached = _get_duplicate_cache(cache_key)
+        if cached:
+            results[index] = cached
+            continue
+        if not tasks:
+            response = schemas.TaskDuplicateCheckResponse(
+                duplicate_found=False,
+                threshold=threshold,
+                method="embedding",
+                candidates=[],
+            )
+            _set_duplicate_cache(cache_key, response)
+            results[index] = response
+            continue
+        pending.append((index, item, tasks, new_text, cache_key))
+
+    if pending:
+        unique_tasks_by_id = {task.id: task for _, _, tasks, _, _ in pending for task in tasks}
+        unique_tasks = list(unique_tasks_by_id.values())
+        task_texts = [_task_duplicate_text(task.title, task.description) for task in unique_tasks]
+        new_texts = [new_text for _, _, _, new_text, _ in pending]
+        started_at = time.perf_counter()
+        try:
+            vectors, used_model = _call_embedding_api_batched([*new_texts, *task_texts])
+            new_vectors = vectors[:len(new_texts)]
+            task_vectors = {
+                task.id: vector
+                for task, vector in zip(unique_tasks, vectors[len(new_texts):])
+            }
+            method = "embedding_hybrid"
+            note = f"Sử dụng AI Model: {used_model}"
+            for pending_pos, (index, item, tasks, new_text, cache_key) in enumerate(pending):
+                scored: list[tuple[models.Task, float]] = []
+                for task in tasks:
+                    task_text = _task_duplicate_text(task.title, task.description)
+                    lexical_score = _lexical_similarity(item.title, item.description, task.title, task.description)
+                    score = max(_cosine_similarity(new_vectors[pending_pos], task_vectors[task.id]), lexical_score)
+                    if _has_conflicting_intent(new_text, task_text):
+                        score = min(score, 0.72)
+                    if _has_conflicting_provider(new_text, task_text):
+                        score = min(score, 0.74)
+                    if _has_conflicting_surface(new_text, task_text):
+                        score = min(score, 0.78)
+                    scored.append((task, score))
+                response = _duplicate_response_from_scored(scored, threshold, method, note)
+                _set_duplicate_cache(cache_key, response)
+                results[index] = response
+        except RuntimeError as exc:
+            method = "fallback_lexical_similarity"
+            raw_error = str(exc)
+            if "429" in raw_error or "quota" in raw_error.lower() or "rate" in raw_error.lower():
+                note = "AI semantic đang tạm quá tải, hệ thống dùng so khớp nội bộ để tiếp tục kiểm tra."
+            else:
+                note = "AI semantic tạm thời không khả dụng, hệ thống dùng so khớp nội bộ để tiếp tục kiểm tra."
+            for index, item, tasks, _, cache_key in pending:
+                scored = [
+                    (task, _lexical_similarity(item.title, item.description, task.title, task.description))
+                    for task in tasks
+                ]
+                response = _duplicate_response_from_scored(scored, threshold, method, note)
+                _set_duplicate_cache(cache_key, response)
+                results[index] = response
+
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        duplicate_count = sum(1 for result in results if result and result.duplicate_found)
+        _safe_terminal_print(
+            "[AI EMBEDDING] "
+            f"feature=duplicate-check-batch project_id={project_id} method=batch "
+            f"elapsed_ms={elapsed_ms} drafts_checked={len(items)} tasks_compared={len(unique_tasks)} "
+            f"duplicates={duplicate_count}"
+        )
+
+    return schemas.TaskDuplicateBatchCheckResponse(
+        items=[result for result in results if result is not None]
+    )
+
+
 @router.post("/projects/{project_id}/tasks", response_model=schemas.TaskResponse)
 def create_task(
     project_id: int,
@@ -642,13 +844,40 @@ def check_task_duplicate(
     if not data.title.strip():
         raise HTTPException(status_code=400, detail="Tiêu đề task không được để trống")
     enforce_ai_quota(current_user.id, current_user.role, "duplicate-check", project_id)
-    return _check_duplicate_tasks(
+    return _check_duplicate_tasks_batch(
         db,
         project_id,
-        data.title.strip(),
-        data.description,
-        exclude_task_id=data.exclude_task_id,
-    )
+        [
+            schemas.TaskDuplicateCheckRequest(
+                title=data.title.strip(),
+                description=data.description,
+                exclude_task_id=data.exclude_task_id,
+            )
+        ],
+    ).items[0]
+
+
+@router.post("/projects/{project_id}/tasks/check-duplicate-batch", response_model=schemas.TaskDuplicateBatchCheckResponse)
+def check_task_duplicate_batch(
+    project_id: int,
+    data: schemas.TaskDuplicateBatchCheckRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(deps.require_project_member)
+):
+    """Kiểm tra trùng cho nhiều task nháp trong một lần gọi."""
+    items: list[schemas.TaskDuplicateCheckRequest] = []
+    for item in data.items:
+        if not item.title.strip():
+            raise HTTPException(status_code=400, detail="Tiêu đề task không được để trống")
+        items.append(
+            schemas.TaskDuplicateCheckRequest(
+                title=item.title.strip(),
+                description=item.description,
+                exclude_task_id=item.exclude_task_id,
+            )
+        )
+    enforce_ai_quota(current_user.id, current_user.role, "duplicate-check", project_id)
+    return _check_duplicate_tasks_batch(db, project_id, items)
 
 
 @router.put("/projects/{project_id}/tasks/{task_id}/move", response_model=schemas.TaskResponse)

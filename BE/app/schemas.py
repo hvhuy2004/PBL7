@@ -146,6 +146,9 @@ class TaskDuplicateCheckRequest(BaseModel):
     description: Optional[str] = None
     exclude_task_id: Optional[int] = None
 
+class TaskDuplicateBatchCheckRequest(BaseModel):
+    items: List[TaskDuplicateCheckRequest] = Field(min_length=1, max_length=20)
+
 class TaskDuplicateCandidate(BaseModel):
     id: int
     title: str
@@ -162,6 +165,9 @@ class TaskDuplicateCheckResponse(BaseModel):
     method: str
     candidates: List[TaskDuplicateCandidate] = []
     note: Optional[str] = None
+
+class TaskDuplicateBatchCheckResponse(BaseModel):
+    items: List[TaskDuplicateCheckResponse]
 
 # --- Task Checklist Item ---
 class TaskChecklistItemBase(BaseModel):
