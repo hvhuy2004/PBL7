@@ -589,8 +589,10 @@ function AITaskPromptPanel({
   aiDrafts,
   selectedDrafts,
   toggleDraft,
+  updateDraft,
   createSelectedDrafts,
   bulkCreating,
+  assignableMembers,
   userMap,
 }) {
   return (
@@ -627,7 +629,7 @@ function AITaskPromptPanel({
       {!!aiDrafts.length && (
         <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
           {aiDrafts.map((draft, index) => (
-            <label
+            <div
               key={`${draft.title}-${index}`}
               style={{
                 display: 'grid',
@@ -646,20 +648,80 @@ function AITaskPromptPanel({
                 onChange={() => toggleDraft(index)}
                 style={{ marginTop: 2 }}
               />
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{draft.title}</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 5, fontSize: 12, color: 'var(--text-secondary)' }}>
-                  <span>{TYPE_LABELS[draft.task_type] || draft.task_type || 'Công việc'}</span>
-                  <span>{PRIORITY_LABELS[draft.priority] || draft.priority || 'Trung bình'}</span>
-                  {draft.assignee_id && <span>{userMap[draft.assignee_id]?.full_name || draft.assignee_name || `User #${draft.assignee_id}`}</span>}
-                  {draft.due_date && <span>{new Date(draft.due_date).toLocaleDateString('vi-VN')}</span>}
-                  {draft.estimated_hours && <span>{draft.estimated_hours}h</span>}
+              <div style={{ display: 'grid', gap: 8 }}>
+                <input
+                  className="form-input"
+                  value={draft.title || ''}
+                  onChange={(e) => updateDraft(index, { title: e.target.value })}
+                  placeholder="Tiêu đề công việc"
+                  style={{ height: 34, fontWeight: 700, fontSize: 13 }}
+                />
+                <textarea
+                  className="form-input"
+                  value={draft.description || ''}
+                  onChange={(e) => updateDraft(index, { description: e.target.value })}
+                  placeholder="Mô tả ngắn"
+                  rows={2}
+                  style={{ minHeight: 58, fontSize: 12, resize: 'vertical' }}
+                />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr 1fr 0.8fr', gap: 6 }}>
+                  <select
+                    className="form-input"
+                    value={draft.priority || 'Medium'}
+                    onChange={(e) => updateDraft(index, { priority: e.target.value })}
+                    style={{ height: 34, fontSize: 12 }}
+                  >
+                    <option value="Low">Thấp</option>
+                    <option value="Medium">Trung bình</option>
+                    <option value="High">Cao</option>
+                  </select>
+                  <select
+                    className="form-input"
+                    value={draft.task_type || 'Task'}
+                    onChange={(e) => updateDraft(index, { task_type: e.target.value })}
+                    style={{ height: 34, fontSize: 12 }}
+                  >
+                    <option value="Task">Công việc</option>
+                    <option value="Bug">Lỗi</option>
+                    <option value="Feature">Tính năng</option>
+                    <option value="Docs">Tài liệu</option>
+                  </select>
+                  <select
+                    className="form-input"
+                    value={draft.assignee_id ? String(draft.assignee_id) : ''}
+                    onChange={(e) => updateDraft(index, {
+                      assignee_id: e.target.value ? Number(e.target.value) : null,
+                      assignee_name: e.target.value ? userMap[Number(e.target.value)]?.full_name : '',
+                    })}
+                    style={{ height: 34, fontSize: 12 }}
+                  >
+                    <option value="">Chưa giao</option>
+                    {assignableMembers.map((m) => (
+                      <option key={m.user_id} value={m.user_id}>
+                        {userMap[m.user_id]?.full_name || `User #${m.user_id}`}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="datetime-local"
+                    className="form-input"
+                    value={draft.due_date ? toDatetimeLocalValue(draft.due_date) : ''}
+                    onChange={(e) => updateDraft(index, { due_date: localDatetimeInputToISO(e.target.value) })}
+                    style={{ height: 34, fontSize: 12 }}
+                  />
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={draft.estimated_hours ?? ''}
+                    onChange={(e) => updateDraft(index, { estimated_hours: e.target.value })}
+                    placeholder="Giờ"
+                    min="0"
+                    step="0.5"
+                    style={{ height: 34, fontSize: 12 }}
+                  />
                 </div>
-                {draft.description && (
-                  <div style={{ marginTop: 5, fontSize: 12, color: 'var(--text-muted)' }}>{draft.description}</div>
-                )}
               </div>
-            </label>
+            </div>
           ))}
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button type="button" className="btn btn-primary" onClick={createSelectedDrafts} disabled={bulkCreating || !selectedDrafts.length}>
@@ -761,6 +823,12 @@ function CreateTaskModal({ projectId, columnId, members, userMap, canManage, cur
     setSelectedDrafts((prev) => (
       prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index].sort((a, b) => a - b)
     ));
+  };
+
+  const updateDraft = (index, patch) => {
+    setAiDrafts((prev) => prev.map((draft, i) => (
+      i === index ? { ...draft, ...patch } : draft
+    )));
   };
 
   const createPayloadFromDraft = (draft) => ({
@@ -941,8 +1009,10 @@ function CreateTaskModal({ projectId, columnId, members, userMap, canManage, cur
           aiDrafts={aiDrafts}
           selectedDrafts={selectedDrafts}
           toggleDraft={toggleDraft}
+          updateDraft={updateDraft}
           createSelectedDrafts={createSelectedDrafts}
           bulkCreating={bulkCreating}
+          assignableMembers={assignableMembers}
           userMap={userMap}
         />
         <div className="modal-title">Tạo công việc</div>
