@@ -37,11 +37,18 @@ function actionMeta(type) {
   return ACTION_META[type] || ACTION_META[normalizeActionType(type)] || { label: 'Hoạt động', icon: Activity, cls: '' };
 }
 
+function displayActivityText(value = '') {
+  return String(value || '')
+    .replace(/\bTask\s*#/g, 'Công việc #')
+    .replace(/\bTask:/g, 'Công việc:')
+    .replace(/\b[Tt]ask\b/g, (word) => (word[0] === 'T' ? 'Công việc' : 'công việc'));
+}
+
 function buildDescription(log) {
   const meta = actionMeta(log.action_type);
   const actor = log.user_name || 'Thành viên';
-  if (log.task_title) return `${actor} - ${meta.label.toLowerCase()} "${log.task_title}"`;
-  if (log.new_value) return `${actor} - ${meta.label.toLowerCase()}: ${log.new_value}`;
+  if (log.task_title) return `${actor} - ${meta.label.toLowerCase()} "${displayActivityText(log.task_title)}"`;
+  if (log.new_value) return `${actor} - ${meta.label.toLowerCase()}: ${displayActivityText(log.new_value)}`;
   return `${actor} - ${meta.label.toLowerCase()}`;
 }
 
@@ -102,7 +109,7 @@ export default function ActivityPage() {
     return logs.filter((log) => {
       if (actionFilter !== 'all' && normalizeActionType(log.action_type) !== actionFilter) return false;
       if (!normalized) return true;
-      const haystack = `${log.user_name || ''} ${log.task_title || ''} ${log.new_value || ''} ${actionMeta(log.action_type).label}`.toLowerCase();
+      const haystack = `${log.user_name || ''} ${displayActivityText(log.task_title)} ${displayActivityText(log.new_value)} ${actionMeta(log.action_type).label}`.toLowerCase();
       return haystack.includes(normalized);
     });
   }, [logs, actionFilter, query]);
