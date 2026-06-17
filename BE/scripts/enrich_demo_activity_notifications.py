@@ -95,11 +95,12 @@ def add_manager_notifications(db) -> int:
         "linh.tester@agileai-demo.com",
         mention_comment,
     )
+    assigned_link = task_link(db, "Tổng kiểm tra dữ liệu trước ngày bảo vệ", "/projects/5")
     items = [
         {
-            "title": "Công việc sắp đến hạn",
-            "content": "Tổng kiểm tra dữ liệu trước ngày bảo vệ cần được rà soát tiến độ trong hôm nay.",
-            "link_url": task_link(db, "Tổng kiểm tra dữ liệu trước ngày bảo vệ", "/projects/5"),
+            "title": "Được giao công việc",
+            "content": "Bạn được giao công việc 'Tổng kiểm tra dữ liệu trước ngày bảo vệ'.",
+            "link_url": assigned_link,
             "is_read": False,
             "created_at": now - timedelta(minutes=24),
         },
@@ -110,29 +111,7 @@ def add_manager_notifications(db) -> int:
             "is_read": False,
             "created_at": now - timedelta(hours=1, minutes=18),
         },
-        {
-            "title": "Checklist được cập nhật",
-            "content": "Một mục nghiệm thu của công việc kiểm thử chống trùng task bằng embedding vừa được hoàn thành.",
-            "link_url": task_link(db, "Kiểm thử chống trùng task bằng embedding", "/projects/5"),
-            "is_read": True,
-            "created_at": now - timedelta(hours=3, minutes=5),
-        },
-        {
-            "title": "Thành viên cập nhật tiến độ",
-            "content": "Khoa Trần đã cập nhật tiến độ phần Docker Compose, bạn có thể xem lại trên bảng Kanban.",
-            "link_url": task_link(db, "Đóng gói Docker Compose cho deploy", "/projects/5"),
-            "is_read": True,
-            "created_at": now - timedelta(days=1, hours=2),
-        },
-        {
-            "title": "Yêu cầu đặt lịch cần xử lý",
-            "content": "Dự án Website đặt lịch phòng học có màn hình duyệt lịch cần được kiểm tra trước khi demo.",
-            "link_url": task_link(db, "Thiết kế màn hình duyệt lịch cho quản lý", "/projects/1"),
-            "is_read": True,
-            "created_at": now - timedelta(days=1, hours=5, minutes=30),
-        },
     ]
-
     for item in items:
         db.add(models.Notification(user_id=manager.id, **item))
     return len(items)
