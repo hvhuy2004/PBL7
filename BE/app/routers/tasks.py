@@ -17,6 +17,7 @@ from typing import List, Optional
 from app import schemas, models
 from app.database import get_db
 from app.core import deps
+from app.core.ai_limits import enforce_ai_quota
 from app.crud import task as crud_task
 
 router = APIRouter(tags=["Tasks & Kanban"])
@@ -595,6 +596,7 @@ def check_task_duplicate(
     """Kiểm tra task mới có gần trùng task cũ trong cùng project hay không."""
     if not data.title.strip():
         raise HTTPException(status_code=400, detail="Tiêu đề task không được để trống")
+    enforce_ai_quota(current_user.id, current_user.role, "duplicate-check", project_id)
     return _check_duplicate_tasks(
         db,
         project_id,

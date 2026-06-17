@@ -17,6 +17,7 @@ from dotenv import dotenv_values, load_dotenv
 
 from app import models, schemas
 from app.core import deps
+from app.core.ai_limits import enforce_ai_quota
 from app.database import get_db
 
 ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
@@ -1625,6 +1626,7 @@ def parse_task_prompt(
     if not _has_task_intent(prompt):
         raise HTTPException(status_code=400, detail="Mô tả chưa thể hiện một công việc cần thực hiện")
 
+    enforce_ai_quota(current_user.id, current_user.role, "parse-task", project_id)
     members = _project_member_context(db, project_id)
     member_ids = {m["id"] for m in members}
     now_dt = datetime.now(VIETNAM_TZ)
@@ -1716,6 +1718,7 @@ def parse_task_backlog_prompt(
     if not _has_task_intent(prompt):
         raise HTTPException(status_code=400, detail="Mô tả chưa thể hiện backlog hoặc công việc cần thực hiện")
 
+    enforce_ai_quota(current_user.id, current_user.role, "parse-tasks", project_id)
     members = _project_member_context(db, project_id)
     member_ids = {m["id"] for m in members}
     now_dt = datetime.now(VIETNAM_TZ)
@@ -1869,6 +1872,7 @@ def summarize_project_status(
             generated_at=now_dt,
         )
 
+    enforce_ai_quota(current_user.id, current_user.role, "project-summary", project_id)
     system_prompt = (
         "You are an Agile project assistant for a Vietnamese IT graduation project. "
         "Analyze the provided project metrics and task list. Return only JSON with keys: "

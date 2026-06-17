@@ -6,6 +6,7 @@ import {
   Archive,
   ArrowLeft,
   Activity,
+  BarChart3,
   CalendarDays,
   Sparkles,
   Edit3,
@@ -2070,7 +2071,7 @@ export default function BoardPage() {
             onClick={() => setViewMode('analytics')}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px' }}
           >
-            <Activity size={14} /> Thống kê
+            <BarChart3 size={14} /> Thống kê
           </button>
         </div>
       </div>
@@ -2170,8 +2171,8 @@ export default function BoardPage() {
                           }}
                         >
                           <div className="kanban-column-header">
-                            <div className="col-name" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ width: 7, height: 7, borderRadius: '50%', background: col.color || 'var(--accent)', display: 'inline-block' }} />
+                            <div className="col-name" style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                              <span style={{ width: 7, height: 7, borderRadius: '50%', background: col.color || 'var(--accent)', display: 'inline-block', flexShrink: 0 }} />
                               {col.name}
                             </div>
                             <div className="col-count">{laneTasks.length}</div>
@@ -2233,8 +2234,8 @@ export default function BoardPage() {
                   }}
                 >
                   <div className="kanban-column-header" style={wipExceeded ? { background: 'rgba(248,81,73,0.06)' } : {}}>
-                    <div className="col-name" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: col.color || 'var(--accent)', display: 'inline-block' }} />
+                    <div className="col-name" style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: col.color || 'var(--accent)', display: 'inline-block', flexShrink: 0 }} />
                       {col.name}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -2369,7 +2370,7 @@ export default function BoardPage() {
             })}
 
             {canManage && (
-              <div className="kanban-column" style={{ minWidth: 260, maxWidth: 260, justifyContent: 'center', alignItems: 'center', borderStyle: 'dashed' }}>
+              <div className="kanban-column" style={{ minWidth: 300, maxWidth: 300, justifyContent: 'center', alignItems: 'center', borderStyle: 'dashed' }}>
                 <button className="btn btn-ghost" onClick={() => setShowCreateColumn(true)}><Plus size={14} /> Thêm cột</button>
               </div>
             )}

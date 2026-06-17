@@ -19,6 +19,7 @@ BE/uploads/
 uploads/
 BE/backups/
 BE/.ai_usage.json
+BE/.ai_rate_limits.json
 .codex-runlogs/
 *.log
 
