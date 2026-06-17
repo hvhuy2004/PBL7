@@ -576,7 +576,11 @@ def _check_duplicate_tasks(
     except RuntimeError as exc:
         scored = [(task, score) for task, score in zip(tasks, lexical_scores)]
         method = "fallback_lexical_similarity"
-        note = f"Embedding API lỗi, hệ thống dùng so khớp text tạm thời: {str(exc)[:160]}"
+        raw_error = str(exc)
+        if "429" in raw_error or "quota" in raw_error.lower() or "rate" in raw_error.lower():
+            note = "AI semantic đang tạm quá tải, hệ thống dùng so khớp nội bộ để tiếp tục kiểm tra."
+        else:
+            note = "AI semantic tạm thời không khả dụng, hệ thống dùng so khớp nội bộ để tiếp tục kiểm tra."
 
     scored.sort(key=lambda item: item[1], reverse=True)
     candidates = [

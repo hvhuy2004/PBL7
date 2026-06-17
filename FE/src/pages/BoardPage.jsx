@@ -1021,8 +1021,14 @@ function CreateTaskModal({ projectId, columnId, members, userMap, canManage, cur
               </div>
             )}
             {!duplicateChecking && duplicateCheckResult?.key === duplicateKeyFor(form.title, form.description) && !duplicateCheckResult.result.duplicate_found && (
-              <div style={{ marginTop: 5, fontSize: 12, color: 'var(--green)' }}>
-                Chưa phát hiện công việc trùng.
+              <div style={{
+                marginTop: 5,
+                fontSize: 12,
+                color: duplicateCheckResult.result.method === 'fallback_lexical_similarity' ? 'var(--orange)' : 'var(--green)',
+              }}>
+                {duplicateCheckResult.result.method === 'fallback_lexical_similarity'
+                  ? (duplicateCheckResult.result.note || 'AI semantic t\u1ea1m th\u1eddi kh\u00f4ng kh\u1ea3 d\u1ee5ng, h\u1ec7 th\u1ed1ng \u0111ang d\u00f9ng so kh\u1edbp n\u1ed9i b\u1ed9.')
+                  : 'Ch\u01b0a ph\u00e1t hi\u1ec7n c\u00f4ng vi\u1ec7c tr\u00f9ng.'}
               </div>
             )}
           </div>
