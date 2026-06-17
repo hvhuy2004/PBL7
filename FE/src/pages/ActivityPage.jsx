@@ -45,6 +45,17 @@ function buildDescription(log) {
   return `${actor} - ${meta.label.toLowerCase()}`;
 }
 
+function formatActivityTime(value) {
+  if (!value) return '';
+  return new Date(value).toLocaleString('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export default function ActivityPage() {
   const [projects, setProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
@@ -190,7 +201,7 @@ export default function ActivityPage() {
                     <div className="ops-timeline-item" key={log.id}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                         <span className={`ops-pill ${meta.cls}`}><meta.icon size={13} /> {meta.label}</span>
-                        <span className="ops-row-sub">{new Date(log.created_at).toLocaleString('vi-VN')}</span>
+                        <span className="ops-row-sub">{formatActivityTime(log.created_at)}</span>
                       </div>
                       <div className="ops-row-title">{buildDescription(log)}</div>
                     </div>
