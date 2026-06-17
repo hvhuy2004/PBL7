@@ -158,7 +158,7 @@ export default function AdminPage() {
           <div className="ops-panel-body">
             <div className="ops-grid" style={{ marginBottom: 14 }}>
               <div>
-                <div className="ops-row-sub">GitHub Models requests</div>
+                <div className="ops-row-sub">Lượt gọi GitHub Models</div>
                 <div className="ops-row-title" style={{ fontSize: 22 }}>{aiRequestsToday}/{aiLimit || '-'}</div>
                 <div className="ops-progress" style={{ marginTop: 8 }}>
                   <div className="ops-progress-bar" style={{ width: `${aiPercent}%` }} />
@@ -184,12 +184,12 @@ export default function AdminPage() {
               <table className="ops-table">
                 <thead>
                   <tr>
-                    <th>Provider</th>
+                    <th>Nguồn AI</th>
                     <th>Model</th>
-                    <th>Requests</th>
+                    <th>Lượt gọi</th>
                     <th>Prompt tokens</th>
                     <th>Output tokens</th>
-                    <th>Total tokens</th>
+                    <th>Tổng token</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -226,7 +226,7 @@ export default function AdminPage() {
                 <thead>
                   <tr>
                     <th>Người dùng</th>
-                    <th>Role</th>
+                    <th>Quyền</th>
                     <th>Dự án</th>
                     <th>Công việc</th>
                     <th>Đăng ký</th>
@@ -269,7 +269,7 @@ export default function AdminPage() {
           <div className="ops-panel">
             <div className="ops-panel-header">
               <div>
-                <div className="ops-panel-title">Project trong hệ thống</div>
+                <div className="ops-panel-title">Dự án trong hệ thống</div>
                 <div className="ops-panel-subtitle">Tổng quan owner, thành viên và tiến độ task</div>
               </div>
               <BriefcaseBusiness size={18} color="var(--text-secondary)" />
