@@ -1244,9 +1244,11 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, canMana
   };
 
   const deleteComment = async (commentId) => {
+    if (!confirm('Xóa bình luận này?')) return;
     try {
       await api.delete(`/comments/${commentId}`);
       setComments((prev) => prev.filter((c) => c.id !== commentId));
+      addToast('Đã xóa bình luận', 'success');
     } catch (err) {
       addToast(err.response?.data?.detail || 'Xóa bình luận thất bại', 'error');
     }
@@ -1399,6 +1401,7 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, canMana
   };
 
   const deleteAttachment = async (attachmentId) => {
+    if (!confirm('Xóa tệp đính kèm này?')) return;
     try {
       await api.delete(`/attachments/${attachmentId}`);
       await loadAttachments();
