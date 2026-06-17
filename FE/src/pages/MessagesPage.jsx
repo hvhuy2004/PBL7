@@ -28,6 +28,8 @@ function displayMessageText(value = '') {
   return String(value || '').replace(/\b[Tt]ask\b/g, (word) => (word[0] === 'T' ? 'Công việc' : 'công việc'));
 }
 
+const ENABLE_MESSAGES_WS = import.meta.env.VITE_ENABLE_MESSAGES_WS === 'true';
+
 export default function MessagesPage() {
   const { user, token } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -40,7 +42,6 @@ export default function MessagesPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
-  const [wsStatus, setWsStatus] = useState('offline');
   const listRef = useRef(null);
   const reconnectTimerRef = useRef(null);
 
@@ -96,24 +97,16 @@ export default function MessagesPage() {
   }, [loadMessages]);
 
   useEffect(() => {
-    if (!selectedProjectId || !token) {
-      setWsStatus('offline');
-      return undefined;
-    }
+    if (!ENABLE_MESSAGES_WS || !selectedProjectId || !token) return undefined;
 
     let stopped = false;
     let socket = null;
 
     const connect = () => {
       if (stopped) return;
-      setWsStatus('connecting');
       socket = new WebSocket(toWebSocketUrl(
         `/projects/${selectedProjectId}/messages/ws?token=${encodeURIComponent(token)}`,
       ));
-
-      socket.onopen = () => {
-        if (!stopped) setWsStatus('online');
-      };
 
       socket.onmessage = (event) => {
         if (stopped) return;
@@ -134,13 +127,10 @@ export default function MessagesPage() {
         }
       };
 
-      socket.onerror = () => {
-        if (!stopped) setWsStatus('offline');
-      };
+      socket.onerror = () => {};
 
       socket.onclose = () => {
         if (stopped) return;
-        setWsStatus('offline');
         reconnectTimerRef.current = window.setTimeout(connect, 5000);
       };
     };
@@ -218,9 +208,6 @@ export default function MessagesPage() {
             <RefreshCw size={16} /> Làm mới
           </button>
           <div className="ops-toolbar-spacer" />
-          <span className={`ops-pill ${wsStatus === 'online' ? 'green' : 'orange'}`}>
-            {wsStatus === 'online' ? 'Realtime' : 'Polling'}
-          </span>
           <span className="ops-pill blue">
             <MessageSquare size={13} />
             {messages.length} tin nhắn

@@ -1430,7 +1430,7 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, canMana
                 >{tab.label}</button>
               ))}
             </div>
-            <button className="btn-icon" onClick={onClose}><X size={15} /></button>
+            <button className="btn-icon" aria-label="Đóng" onClick={onClose}><X size={15} /></button>
           </div>
         </div>
 

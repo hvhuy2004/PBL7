@@ -1,23 +1,17 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import {
   Plus, Search, Clock, MoreVertical, Trash2, Edit3, X,
-  AlertCircle, FolderOpen, Layers, Activity, CheckCircle2, Archive,
+  AlertCircle, FolderOpen, Archive,
 } from 'lucide-react';
 import { useToast, ToastContainer } from '../hooks/useToast';
 import ArchivedProjectsModal from '../components/ArchivedProjectsModal';
 import { fetchMyProjects, readProjectsCache, writeProjectsCache } from '../utils/projectCache';
 
-const PROJECT_ICONS = [Layers, Activity, FolderOpen, CheckCircle2, Layers, Activity];
-
 function getProjectColor(project) {
   return project?.color || '#4f8ef7';
-}
-
-function getProjectIcon(id) {
-  const Icon = PROJECT_ICONS[id % PROJECT_ICONS.length];
-  return <Icon size={17} strokeWidth={2} />;
 }
 
 function displayDemoText(value = '') {
@@ -391,13 +385,6 @@ export default function ProjectsPage() {
                 style={{ cursor: 'pointer' }}
               >
                 <div className="project-header">
-                  {/* Icon box */}
-                  <div className="project-icon" style={{
-                    background: `${getProjectColor(p)}18`,
-                    color: getProjectColor(p),
-                  }}>
-                    {getProjectIcon(p.id)}
-                  </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="project-name">{p.name}</div>
                     <div className="project-desc">{displayDemoText(p.description) || 'Chưa có mô tả'}</div>

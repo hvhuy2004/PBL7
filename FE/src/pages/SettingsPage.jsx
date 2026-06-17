@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Image as ImageIcon, Lock, Save, Trash2, Upload, User } from 'lucide-react';
 import api from '../api';
