@@ -1798,9 +1798,9 @@ export default function BoardPage() {
         map[u.id] = u;
       });
       setUserMap(map);
-    } catch (err) {
-      console.error('Load members failed', err);
+    } catch {
       setMembers([]);
+      setUserMap({});
     }
   }, [projectId]);
 
@@ -1821,7 +1821,10 @@ export default function BoardPage() {
       }
     } catch {
         addToast('Không thể tải dự án hoặc bảng', 'error');
-      navigate('/projects');
+      setProject(null);
+      setBoards([]);
+      setSelectedBoard(null);
+      navigate('/projects', { replace: true });
     } finally {
       setLoading(false);
     }
@@ -1843,8 +1846,16 @@ export default function BoardPage() {
 
   useEffect(() => {
     loadProjectAndBoards();
+  }, [loadProjectAndBoards]);
+
+  useEffect(() => {
+    if (!project?.id) {
+      setMembers([]);
+      setUserMap({});
+      return;
+    }
     loadMembers();
-  }, [loadProjectAndBoards, loadMembers]);
+  }, [project?.id, loadMembers]);
 
   useEffect(() => {
     loadBoardData();
@@ -1874,11 +1885,11 @@ export default function BoardPage() {
 
   // Load tags for filter dropdown
   useEffect(() => {
-    if (!projectId) return;
+    if (!project?.id) return;
     api.get(`/tags/project/${projectId}`)
       .then(r => setProjectTagsCache(r.data || []))
       .catch(() => {});
-  }, [projectId]);
+  }, [project?.id, projectId]);
 
   // ── Computed: filtered tasks ──
   const filteredTasks = useMemo(() => {
