@@ -1402,10 +1402,14 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, canMana
   };
 
   useEffect(() => {
-    loadAttachments();
-    loadChecklist();
-    loadComments();
-    loadTags();
+    const loadDetailData = () => {
+      loadChecklist();
+      loadComments();
+      loadTags();
+      loadAttachments();
+    };
+    const frameId = window.requestAnimationFrame(loadDetailData);
+    return () => window.cancelAnimationFrame(frameId);
   }, [loadAttachments, loadChecklist, loadComments, loadTags]);
 
   const save = async () => {
