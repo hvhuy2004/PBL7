@@ -201,7 +201,7 @@ def create_task(db: Session, data: schemas.TaskCreate, reporter_id: int) -> mode
             recipient_user_id=task.assignee_id,
             title="Được giao công việc mới",
             content=f"Được giao: '{task.title}' trong {project_name}",
-            link_url=f"/projects/{data.project_id}",
+            link_url=f"/projects/{data.project_id}?task={task.id}",
         )
 
     db.commit()
@@ -310,7 +310,7 @@ def update_task(db: Session, task: models.Task, data: schemas.TaskUpdate, user_i
             recipient_user_id=new_assignee_id,
             title="Được giao công việc",
             content=f"Bạn vừa được giao: '{task.title}' trong {project_name}",
-            link_url=f"/projects/{task.project_id}",
+            link_url=f"/projects/{task.project_id}?task={task.id}",
         )
 
     db.commit()

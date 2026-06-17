@@ -52,6 +52,33 @@ def task_link(db, title: str, fallback: str = "/projects") -> str:
     return f"/projects/{task.project_id}?task={task.id}"
 
 
+def ensure_comment(db, task_title: str, author_email: str, content: str) -> models.Task | None:
+    task = (
+        db.query(models.Task)
+        .filter(models.Task.title == task_title, models.Task.deleted_at.is_(None))
+        .order_by(models.Task.id.desc())
+        .first()
+    )
+    author = db.query(models.User).filter(models.User.email == author_email).first()
+    if not task or not author:
+        return task
+
+    exists = db.query(models.Comment).filter(
+        models.Comment.task_id == task.id,
+        models.Comment.user_id == author.id,
+        models.Comment.content == content,
+        models.Comment.deleted_at.is_(None),
+    ).first()
+    if not exists:
+        db.add(models.Comment(
+            task_id=task.id,
+            user_id=author.id,
+            content=content,
+            created_at=vn_now_naive() - timedelta(hours=1, minutes=18),
+        ))
+    return task
+
+
 def add_manager_notifications(db) -> int:
     manager = db.query(models.User).filter(models.User.email == DEMO_MANAGER_EMAIL).first()
     if not manager:
@@ -61,6 +88,13 @@ def add_manager_notifications(db) -> int:
     db.query(models.Notification).filter(models.Notification.user_id == manager.id).delete(synchronize_session=False)
 
     now = vn_now_naive()
+    mention_comment = "@demo.manager kiểm tra lại kịch bản demo hội đồng và checklist phản biện giúp mình nhé."
+    mention_task = ensure_comment(
+        db,
+        "Chuẩn bị kịch bản demo hội đồng",
+        "linh.tester@agileai-demo.com",
+        mention_comment,
+    )
     items = [
         {
             "title": "Công việc sắp đến hạn",
@@ -72,7 +106,7 @@ def add_manager_notifications(db) -> int:
         {
             "title": "Bạn được nhắc trong bình luận",
             "content": "Linh Nguyễn nhắc bạn kiểm tra lại kịch bản demo hội đồng và checklist phản biện.",
-            "link_url": task_link(db, "Chuẩn bị kịch bản demo hội đồng", "/projects/5"),
+            "link_url": f"/projects/{mention_task.project_id}?task={mention_task.id}" if mention_task else "/projects/5",
             "is_read": False,
             "created_at": now - timedelta(hours=1, minutes=18),
         },

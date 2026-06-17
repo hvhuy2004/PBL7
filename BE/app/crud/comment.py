@@ -43,7 +43,7 @@ def create_comment(db: Session, data: schemas.CommentCreate, user_id: int) -> mo
             recipient_user_id=task.assignee_id,
             title="Binh luan moi tren cong viec cua ban",
             content=f"{commenter_name} da binh luan: '{content_preview}' - Task: {task.title}",
-            link_url=f"/projects/{task.project_id}",
+            link_url=f"/projects/{task.project_id}?task={task.id}",
         )
         notified_ids.add(task.assignee_id)
 
@@ -54,7 +54,7 @@ def create_comment(db: Session, data: schemas.CommentCreate, user_id: int) -> mo
             recipient_user_id=task.reporter_id,
             title="Binh luan moi tren task ban tao",
             content=f"{commenter_name} da binh luan: '{content_preview}' - Task: {task.title}",
-            link_url=f"/projects/{task.project_id}",
+            link_url=f"/projects/{task.project_id}?task={task.id}",
         )
         notified_ids.add(task.reporter_id)
 
@@ -74,7 +74,7 @@ def create_comment(db: Session, data: schemas.CommentCreate, user_id: int) -> mo
                 recipient_user_id=mentioned_user.id,
                 title=f"Ban duoc nhac den trong task '{task.title}'",
                 content=f"{commenter_name} da nhac @{mention_token}: '{content_preview}'",
-                link_url=f"/projects/{task.project_id}",
+                link_url=f"/projects/{task.project_id}?task={task.id}",
             )
             notified_ids.add(mentioned_user.id)
 
