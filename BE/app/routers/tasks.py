@@ -870,7 +870,8 @@ def _check_duplicate_tasks_batch(
                 response = _duplicate_response_from_scored(scored, threshold, method, note)
                 _set_duplicate_cache(cache_key, response)
                 results[index] = response
-        except RuntimeError as exc:
+        except Exception as exc:
+            db.rollback()
             method = "fallback_lexical_similarity"
             raw_error = str(exc)
             if "429" in raw_error or "quota" in raw_error.lower() or "rate" in raw_error.lower():

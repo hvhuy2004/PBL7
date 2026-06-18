@@ -762,6 +762,7 @@ function CreateTaskModal({ projectId, columnId, members, userMap, canManage, cur
   const [duplicateChecking, setDuplicateChecking] = useState(false);
   const [duplicateWarning, setDuplicateWarning] = useState(null);
   const [duplicateCheckResult, setDuplicateCheckResult] = useState(null);
+  const duplicateDebounceRef = useRef(null);
 
   const assignableMembers = useMemo(() => {
     if (canManage) return members;
@@ -876,6 +877,15 @@ function CreateTaskModal({ projectId, columnId, members, userMap, canManage, cur
     progress_percent: Number(form.progress_percent || 0),
   });
 
+  const buildPayloadFromValues = (values) => ({
+    ...values,
+    assignee_id: values.assignee_id ? Number(values.assignee_id) : null,
+    start_date: localDatetimeInputToISO(values.start_date),
+    due_date: localDatetimeInputToISO(values.due_date),
+    estimated_hours: values.estimated_hours ? Number(values.estimated_hours) : null,
+    progress_percent: Number(values.progress_percent || 0),
+  });
+
   const checkDuplicateForForm = async ({ force = false } = {}) => {
     const title = form.title.trim();
     const description = form.description || '';
@@ -894,6 +904,16 @@ function CreateTaskModal({ projectId, columnId, members, userMap, canManage, cur
       }
       return result;
     } catch {
+      setDuplicateCheckResult({
+        key,
+        result: {
+          duplicate_found: false,
+          threshold: 0,
+          method: 'unavailable',
+          candidates: [],
+          note: 'Chưa kiểm tra trùng được, hệ thống sẽ kiểm tra lại khi bấm tạo.',
+        },
+      });
       return null;
     } finally {
       setDuplicateChecking(false);
@@ -901,10 +921,50 @@ function CreateTaskModal({ projectId, columnId, members, userMap, canManage, cur
   };
 
   const handleTaskTextChange = (field, value) => {
-    setForm((p) => ({ ...p, [field]: value }));
     setDuplicateWarning(null);
     setDuplicateCheckResult(null);
+    if (duplicateDebounceRef.current) {
+      clearTimeout(duplicateDebounceRef.current);
+    }
+    setForm((prev) => {
+      const next = { ...prev, [field]: value };
+      const title = String(next.title || '').trim();
+      const description = next.description || '';
+      const key = duplicateKeyFor(title, description);
+      if (title && key.length >= 6) {
+        duplicateDebounceRef.current = setTimeout(async () => {
+          setDuplicateChecking(true);
+          try {
+            const result = await checkDuplicate({ title, description });
+            setDuplicateCheckResult({ key, result });
+            if (result.duplicate_found) {
+              setDuplicateWarning({ kind: 'single', payload: buildPayloadFromValues(next), duplicate: result, key });
+            }
+          } catch {
+            setDuplicateCheckResult({
+              key,
+              result: {
+                duplicate_found: false,
+                threshold: 0,
+                method: 'unavailable',
+                candidates: [],
+                note: 'Chưa kiểm tra trùng được, hệ thống sẽ kiểm tra lại khi bấm tạo.',
+              },
+            });
+          } finally {
+            setDuplicateChecking(false);
+          }
+        }, 900);
+      }
+      return next;
+    });
   };
+
+  useEffect(() => () => {
+    if (duplicateDebounceRef.current) {
+      clearTimeout(duplicateDebounceRef.current);
+    }
+  }, []);
 
   const createTaskDirect = async (payload) => {
     const { data } = await api.post(`/projects/${projectId}/tasks`, payload);
@@ -1104,9 +1164,11 @@ function CreateTaskModal({ projectId, columnId, members, userMap, canManage, cur
               <div style={{
                 marginTop: 5,
                 fontSize: 12,
-                color: duplicateCheckResult.result.method === 'fallback_lexical_similarity' ? 'var(--orange)' : 'var(--green)',
+                color: ['fallback_lexical_similarity', 'unavailable'].includes(duplicateCheckResult.result.method) ? 'var(--orange)' : 'var(--green)',
               }}>
-                {duplicateCheckResult.result.method === 'fallback_lexical_similarity'
+                {duplicateCheckResult.result.method === 'unavailable'
+                  ? (duplicateCheckResult.result.note || 'Chưa kiểm tra trùng được, hệ thống sẽ kiểm tra lại khi bấm tạo.')
+                  : duplicateCheckResult.result.method === 'fallback_lexical_similarity'
                   ? (duplicateCheckResult.result.note || 'AI semantic t\u1ea1m th\u1eddi kh\u00f4ng kh\u1ea3 d\u1ee5ng, h\u1ec7 th\u1ed1ng \u0111ang d\u00f9ng so kh\u1edbp n\u1ed9i b\u1ed9.')
                   : 'Ch\u01b0a ph\u00e1t hi\u1ec7n c\u00f4ng vi\u1ec7c tr\u00f9ng.'}
               </div>
