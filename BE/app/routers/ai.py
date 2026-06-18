@@ -1482,11 +1482,29 @@ def _rebalance_drafts(
     window_start, window_end, _ = _planning_window(prompt, now_dt)
 
     if len(mentioned_ids) >= 2 and _has_explicit_assignee_list(prompt):
+        assigned_weight = {mid: 0.0 for mid in mentioned_ids}
+        assigned_count = {mid: 0 for mid in mentioned_ids}
         for index, draft in enumerate(drafts):
-            chosen_id = mentioned_ids[index % len(mentioned_ids)]
+            task_weight = _task_weight(draft, now_dt)
+            task_candidates = _candidate_ids_for_task(draft, mentioned_ids, workload_map)
+            if task_candidates == mentioned_ids:
+                chosen_id = mentioned_ids[index % len(mentioned_ids)]
+            else:
+                chosen_id = min(
+                    task_candidates,
+                    key=lambda mid: (
+                        assigned_count[mid],
+                        assigned_weight[mid],
+                        workload_map[mid]["workload_score"],
+                        workload_map[mid]["open_tasks"],
+                        mid,
+                    ),
+                )
             member = next((m for m in members if m["id"] == chosen_id), None)
             draft.assignee_id = chosen_id
             draft.assignee_name = member["full_name"] if member else draft.assignee_name
+            assigned_weight[chosen_id] += task_weight
+            assigned_count[chosen_id] += 1
 
         if window_start and window_end and not _has_explicit_weekday(prompt):
             used_dates_by_member = {}
