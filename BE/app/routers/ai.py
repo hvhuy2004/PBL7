@@ -1287,6 +1287,11 @@ def _looks_like_multi_member_prompt(prompt: str) -> bool:
     return " va " in f" {text} " or "," in text or "cho team" in text or "cho nhom" in text
 
 
+def _has_explicit_assignee_list(prompt: str) -> bool:
+    text = _strip_vietnamese_accents(prompt).lower()
+    return bool(re.search(r"\b(giao|phan cong|assign)\s+cho\b", text))
+
+
 def _looks_like_single_task_prompt(prompt: str) -> bool:
     text = _strip_vietnamese_accents(prompt).lower()
     if any(token in text for token in ["cac task", "nhieu task", "danh sach task", "phan ra", "chia task", "backlog", "crud", "module"]):
@@ -1475,6 +1480,31 @@ def _rebalance_drafts(
 
     workload_map = {m["id"]: dict(m) for m in workload}
     window_start, window_end, _ = _planning_window(prompt, now_dt)
+
+    if len(mentioned_ids) >= 2 and _has_explicit_assignee_list(prompt):
+        for index, draft in enumerate(drafts):
+            chosen_id = mentioned_ids[index % len(mentioned_ids)]
+            member = next((m for m in members if m["id"] == chosen_id), None)
+            draft.assignee_id = chosen_id
+            draft.assignee_name = member["full_name"] if member else draft.assignee_name
+
+        if window_start and window_end and not _has_explicit_weekday(prompt):
+            used_dates_by_member = {}
+            for index, draft in enumerate(drafts):
+                start_date, due_date = _choose_due_slot_for_member(
+                    draft.assignee_id,
+                    task_index=index,
+                    total_tasks=len(drafts),
+                    window_start=window_start,
+                    window_end=window_end,
+                    workload_map=workload_map,
+                    used_dates_by_member=used_dates_by_member,
+                )
+                if start_date and due_date:
+                    draft.start_date = start_date
+                    draft.due_date = due_date
+        return drafts
+
     assigned_weight = {mid: 0.0 for mid in candidate_ids}
     assigned_count = {mid: 0 for mid in candidate_ids}
     candidate_ids_by_load = sorted(
