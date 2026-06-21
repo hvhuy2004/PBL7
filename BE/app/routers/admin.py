@@ -174,7 +174,11 @@ def get_ai_usage(
     daily_limit = max(1, _safe_int(_env("GITHUB_MODELS_DAILY_LIMIT", "50")))
     today = store.get(today_key, {})
     github = today.get("github_models", {})
-    today_requests = _safe_int(github.get("requests"))
+    today_requests = sum(_safe_int(provider.get("requests")) for provider in today.values() if isinstance(provider, dict))
+    today_prompt_tokens = sum(_safe_int(provider.get("prompt_tokens")) for provider in today.values() if isinstance(provider, dict))
+    today_completion_tokens = sum(_safe_int(provider.get("completion_tokens")) for provider in today.values() if isinstance(provider, dict))
+    today_total_tokens = sum(_safe_int(provider.get("total_tokens")) for provider in today.values() if isinstance(provider, dict))
+    github_requests_today = _safe_int(github.get("requests"))
 
     providers = []
     for provider_key, provider_data in today.items():
@@ -215,10 +219,11 @@ def get_ai_usage(
         "date": today_key,
         "daily_limit": daily_limit,
         "requests_today": today_requests,
-        "remaining_today": max(0, daily_limit - today_requests),
-        "total_tokens_today": _safe_int(github.get("total_tokens")),
-        "prompt_tokens_today": _safe_int(github.get("prompt_tokens")),
-        "completion_tokens_today": _safe_int(github.get("completion_tokens")),
+        "remaining_today": max(0, daily_limit - github_requests_today),
+        "total_tokens_today": today_total_tokens,
+        "prompt_tokens_today": today_prompt_tokens,
+        "completion_tokens_today": today_completion_tokens,
+        "github_requests_today": github_requests_today,
         "providers": providers,
         "history": history,
         "tracked_file_exists": AI_USAGE_PATH.exists(),

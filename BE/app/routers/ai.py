@@ -1282,6 +1282,69 @@ def _mentioned_member_ids(prompt: str, members: list[dict]) -> list[int]:
     return ids
 
 
+def _member_aliases_for_prompt(member: dict) -> list[str]:
+    full_name = _strip_vietnamese_accents(member["full_name"]).lower()
+    parts = [p for p in re.split(r"\s+", full_name) if len(p) >= 2]
+    email = member["email"].lower()
+    aliases = [full_name, email, email.split("@", 1)[0]]
+    if parts:
+        aliases.append(parts[0])
+        if len(parts) > 1:
+            aliases.append(parts[-1])
+            aliases.extend(parts[1:-1])
+    return [alias for alias in dict.fromkeys(aliases) if alias]
+
+
+def _segment_mentions_member(segment: str, member: dict) -> bool:
+    for alias in _member_aliases_for_prompt(member):
+        if "@" in alias or " " in alias:
+            if alias in segment:
+                return True
+        elif re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", segment):
+            return True
+    return False
+
+
+def _assignment_tags(text: str) -> set[str]:
+    normalized = _strip_vietnamese_accents(text or "").lower()
+    tags: set[str] = set()
+    if any(token in normalized for token in ["api", "backend", "endpoint", "server", "jwt", "token"]):
+        tags.add("api")
+    if any(token in normalized for token in ["ui", "giao dien", "frontend", "form", "man hinh"]):
+        tags.add("ui")
+    if any(token in normalized for token in ["kiem thu", "test", "qa", "bug", "loi"]):
+        tags.add("test")
+    if any(token in normalized for token in ["tai lieu", "docs", "document", "huong dan"]):
+        tags.add("docs")
+    if any(token in normalized for token in ["model", "database", "csdl", "schema", "du lieu"]):
+        tags.add("data")
+    return tags
+
+
+def _explicit_assignee_for_draft(
+    draft: schemas.AITaskParseResponse,
+    prompt: str,
+    members: list[dict],
+) -> int | None:
+    prompt_text = _strip_vietnamese_accents(prompt).lower()
+    segments = [segment.strip() for segment in re.split(r"[,;.\n]+", prompt_text) if segment.strip()]
+    if not segments:
+        segments = [prompt_text]
+
+    draft_tags = _assignment_tags(" ".join(str(value or "") for value in [draft.title, draft.description, draft.task_type]))
+    if not draft_tags:
+        return None
+
+    for segment in segments:
+        segment_tags = _assignment_tags(segment)
+        if not segment_tags or draft_tags.isdisjoint(segment_tags):
+            continue
+        for member in members:
+            if _segment_mentions_member(segment, member):
+                return member["id"]
+    return None
+
+
 def _looks_like_multi_member_prompt(prompt: str) -> bool:
     text = _strip_vietnamese_accents(prompt).lower()
     return " va " in f" {text} " or "," in text or "cho team" in text or "cho nhom" in text
@@ -1487,7 +1550,10 @@ def _rebalance_drafts(
         for index, draft in enumerate(drafts):
             task_weight = _task_weight(draft, now_dt)
             task_candidates = _candidate_ids_for_task(draft, mentioned_ids, workload_map)
-            if task_candidates == mentioned_ids:
+            explicit_id = _explicit_assignee_for_draft(draft, prompt, members)
+            if explicit_id in mentioned_ids:
+                chosen_id = explicit_id
+            elif task_candidates == mentioned_ids:
                 chosen_id = mentioned_ids[index % len(mentioned_ids)]
             else:
                 chosen_id = min(
@@ -1556,7 +1622,9 @@ def _rebalance_drafts(
         task_weight = _task_weight(draft, now_dt)
         task_candidates = _candidate_ids_for_task(draft, candidate_ids, workload_map)
 
-        if preserve_llm_assignments and draft.assignee_id in candidate_ids:
+        if (explicit_id := _explicit_assignee_for_draft(draft, prompt, members)) in candidate_ids:
+            chosen_id = explicit_id
+        elif preserve_llm_assignments and draft.assignee_id in candidate_ids:
             chosen_id = draft.assignee_id
         elif len(candidate_ids) > 1:
             matching_by_load = [mid for mid in candidate_ids_by_load if mid in task_candidates]
