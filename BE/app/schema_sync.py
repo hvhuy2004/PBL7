@@ -138,6 +138,26 @@ def sync_schema(engine) -> None:
             )
         )
 
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS task_bookmarks (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    task_id INT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uq_task_bookmarks_user_task (user_id, task_id),
+                    INDEX idx_task_bookmarks_user_id (user_id),
+                    INDEX idx_task_bookmarks_task_id (task_id),
+                    CONSTRAINT fk_task_bookmarks_user
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_task_bookmarks_task
+                        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                )
+                """
+            )
+        )
+
         if _table_exists(conn, "projects"):
             _add_column_if_missing(conn, "projects", "deleted_at", "DATETIME NULL")
 

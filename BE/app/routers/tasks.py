@@ -30,6 +30,27 @@ _embedding_disabled_until = 0.0
 _duplicate_check_cache: dict[str, tuple[float, schemas.TaskDuplicateCheckResponse]] = {}
 
 
+def _bookmark_ids_for_user(db: Session, user_id: int, task_ids: list[int]) -> set[int]:
+    if not task_ids:
+        return set()
+    rows = db.query(models.TaskBookmark.task_id).filter(
+        models.TaskBookmark.user_id == user_id,
+        models.TaskBookmark.task_id.in_(task_ids),
+    ).all()
+    return {row[0] for row in rows}
+
+
+def _attach_bookmark_state(tasks, db: Session, user_id: int):
+    if not isinstance(tasks, list):
+        task_list = [tasks]
+    else:
+        task_list = tasks
+    bookmarked = _bookmark_ids_for_user(db, user_id, [task.id for task in task_list])
+    for task in task_list:
+        setattr(task, "is_bookmarked", task.id in bookmarked)
+    return tasks
+
+
 def _safe_terminal_print(message: str) -> None:
     try:
         print(message, flush=True)
@@ -911,7 +932,8 @@ def create_task(
     """(Thành viên) Tạo Task mới trong project"""
     if data.project_id != project_id:
         raise HTTPException(status_code=400, detail="Path project_id and body project_id mismatch")
-    return crud_task.create_task(db, data, reporter_id=current_user.id)
+    task = crud_task.create_task(db, data, reporter_id=current_user.id)
+    return _attach_bookmark_state(task, db, current_user.id)
 
 
 @router.get("/projects/{project_id}/tasks", response_model=List[schemas.TaskResponse])
@@ -923,7 +945,48 @@ def get_tasks(
     current_user: models.User = Depends(deps.require_project_member)
 ):
     """(Thành viên) Lấy danh sách Task, hỗ trợ filter"""
-    return crud_task.get_tasks(db, project_id, priority=priority, assignee_id=assignee_id)
+    tasks = crud_task.get_tasks(db, project_id, priority=priority, assignee_id=assignee_id)
+    return _attach_bookmark_state(tasks, db, current_user.id)
+
+
+@router.get("/tasks/bookmarks", response_model=List[schemas.TaskBookmarkResponse])
+def get_my_bookmarked_tasks(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_user),
+):
+    """Lấy các công việc người dùng đã đánh dấu để xem sau."""
+    rows = (
+        db.query(models.TaskBookmark, models.Task, models.Project, models.BoardColumn)
+        .join(models.Task, models.TaskBookmark.task_id == models.Task.id)
+        .join(models.Project, models.Task.project_id == models.Project.id)
+        .join(models.BoardColumn, models.Task.column_id == models.BoardColumn.id)
+        .filter(
+            models.TaskBookmark.user_id == current_user.id,
+            models.Task.deleted_at.is_(None),
+            models.Project.deleted_at.is_(None),
+            models.BoardColumn.deleted_at.is_(None),
+        )
+        .order_by(models.TaskBookmark.created_at.desc())
+        .all()
+    )
+    return [
+        schemas.TaskBookmarkResponse(
+            id=bookmark.id,
+            task_id=task.id,
+            project_id=task.project_id,
+            project_name=project.name,
+            column_name=column.name,
+            title=task.title,
+            description=task.description,
+            priority=task.priority,
+            task_type=task.task_type,
+            assignee_id=task.assignee_id,
+            due_date=task.due_date,
+            progress_percent=task.progress_percent,
+            created_at=bookmark.created_at,
+        )
+        for bookmark, task, project, column in rows
+    ]
 
 
 @router.post("/projects/{project_id}/tasks/check-duplicate", response_model=schemas.TaskDuplicateCheckResponse)
@@ -984,13 +1047,14 @@ def move_task(
 ):
     """(Thành viên) Kéo thả Task sang cột khác trên Kanban"""
     task = crud_task.get_task_or_404(db, task_id, project_id)
-    return crud_task.move_task(
+    task = crud_task.move_task(
         db,
         task,
         new_column_id,
         user_id=current_user.id,
         expected_updated_at=expected_updated_at,
     )
+    return _attach_bookmark_state(task, db, current_user.id)
 
 
 @router.put("/projects/{project_id}/tasks/{task_id}", response_model=schemas.TaskResponse)
@@ -1003,7 +1067,44 @@ def update_task(
 ):
     """(Thành viên) Cập nhật chi tiết Task"""
     task = crud_task.get_task_or_404(db, task_id, project_id)
-    return crud_task.update_task(db, task, data, user_id=current_user.id)
+    task = crud_task.update_task(db, task, data, user_id=current_user.id)
+    return _attach_bookmark_state(task, db, current_user.id)
+
+
+@router.post("/projects/{project_id}/tasks/{task_id}/bookmark", response_model=schemas.TaskBookmarkStatus)
+def bookmark_task(
+    project_id: int,
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(deps.require_project_member),
+):
+    task = crud_task.get_task_or_404(db, task_id, project_id)
+    existing = db.query(models.TaskBookmark).filter(
+        models.TaskBookmark.user_id == current_user.id,
+        models.TaskBookmark.task_id == task.id,
+    ).first()
+    if not existing:
+        db.add(models.TaskBookmark(user_id=current_user.id, task_id=task.id))
+        db.commit()
+    return schemas.TaskBookmarkStatus(task_id=task.id, is_bookmarked=True)
+
+
+@router.delete("/projects/{project_id}/tasks/{task_id}/bookmark", response_model=schemas.TaskBookmarkStatus)
+def unbookmark_task(
+    project_id: int,
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(deps.require_project_member),
+):
+    task = crud_task.get_task_or_404(db, task_id, project_id)
+    existing = db.query(models.TaskBookmark).filter(
+        models.TaskBookmark.user_id == current_user.id,
+        models.TaskBookmark.task_id == task.id,
+    ).first()
+    if existing:
+        db.delete(existing)
+        db.commit()
+    return schemas.TaskBookmarkStatus(task_id=task.id, is_bookmarked=False)
 
 
 @router.get("/projects/{project_id}/tasks/{task_id}/checklist", response_model=List[schemas.TaskChecklistItemResponse])

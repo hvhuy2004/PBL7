@@ -6,6 +6,7 @@ import {
   LayoutDashboard, FolderKanban, CheckSquare,
   Bell, Settings, LogOut, Users, Layers, CalendarDays,
   BarChart3, History, Tags, Archive, MessageSquare, ShieldCheck,
+  Star,
 } from 'lucide-react';
 import api from '../api';
 import { resolveMediaUrl } from '../utils/media';
@@ -173,6 +174,14 @@ export default function Sidebar() {
         {user?.role !== 'admin' && (
           <>
             <div className="nav-section-label">Dữ liệu</div>
+
+            <div
+              className={`nav-item ${location.pathname.startsWith('/bookmarks') ? 'active' : ''}`}
+              onClick={() => navigate('/bookmarks')}
+            >
+              <Star className="nav-icon" size={18} />
+              <span>Đánh dấu</span>
+            </div>
 
             <div
               className={`nav-item ${location.pathname.startsWith('/archive') ? 'active' : ''}`}

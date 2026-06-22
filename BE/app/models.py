@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, Enum, DateTime, Numeric
+from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, Enum, DateTime, Numeric, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -23,6 +23,7 @@ class User(Base):
     comments = relationship("Comment", back_populates="user", cascade="all, delete")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete")
     project_messages = relationship("ProjectMessage", back_populates="user", cascade="all, delete")
+    task_bookmarks = relationship("TaskBookmark", back_populates="user", cascade="all, delete")
 
 # Bảng Workspaces
 class Workspace(Base):
@@ -151,6 +152,7 @@ class Task(Base):
     comments = relationship("Comment", back_populates="task", cascade="all, delete")
     attachments = relationship("Attachment", back_populates="task", cascade="all, delete")
     tags = relationship("Tag", secondary="task_tags", back_populates="tasks")
+    bookmarks = relationship("TaskBookmark", back_populates="task", cascade="all, delete")
 
 class TaskEmbedding(Base):
     __tablename__ = "task_embeddings"
@@ -165,6 +167,20 @@ class TaskEmbedding(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     task = relationship("Task")
+
+class TaskBookmark(Base):
+    __tablename__ = "task_bookmarks"
+    __table_args__ = (
+        UniqueConstraint("user_id", "task_id", name="uq_task_bookmarks_user_task"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="task_bookmarks")
+    task = relationship("Task", back_populates="bookmarks")
 
 # Bảng Task_Checklist_Items
 class TaskChecklistItem(Base):

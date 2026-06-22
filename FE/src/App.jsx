@@ -14,6 +14,7 @@ import TagsPage from './pages/TagsPage';
 import ArchivePage from './pages/ArchivePage';
 import MessagesPage from './pages/MessagesPage';
 import AdminPage from './pages/AdminPage';
+import BookmarksPage from './pages/BookmarksPage';
 
 export default function App() {
   return (
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="/activity"            element={<ActivityPage />} />
           <Route path="/messages"            element={<MessagesPage />} />
           <Route path="/tags"                element={<TagsPage />} />
+          <Route path="/bookmarks"           element={<BookmarksPage />} />
           <Route path="/archive"             element={<ArchivePage />} />
           <Route path="/members"             element={<MembersPage />} />
           <Route path="/admin"               element={<AdminPage />} />

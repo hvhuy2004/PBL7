@@ -16,6 +16,7 @@ import {
   Paperclip,
   Plus,
   Send,
+  Star,
   Tag,
   Trash2,
   Upload,
@@ -1182,10 +1183,12 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, canMana
   const onUpdatedRef = useRef(onUpdated);
   const canEditTask = canManageTasks || (currentUser?.id && task.assignee_id === currentUser.id);
   const lockedFieldStyle = !canEditTask ? { background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'not-allowed' } : {};
+  const [isBookmarked, setIsBookmarked] = useState(!!task.is_bookmarked);
 
   useEffect(() => {
     taskRef.current = task;
     onUpdatedRef.current = onUpdated;
+    setIsBookmarked(!!task.is_bookmarked);
   }, [task, onUpdated]);
 
   const [form, setForm] = useState({
@@ -1493,6 +1496,29 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, canMana
     }
   };
 
+  const toggleBookmark = async () => {
+    const next = !isBookmarked;
+    setIsBookmarked(next);
+    const optimisticTask = { ...taskRef.current, is_bookmarked: next };
+    taskRef.current = optimisticTask;
+    onUpdatedRef.current(optimisticTask);
+    try {
+      if (next) {
+        await api.post(`/projects/${projectId}/tasks/${task.id}/bookmark`);
+        addToast('Đã đánh dấu công việc', 'success');
+      } else {
+        await api.delete(`/projects/${projectId}/tasks/${task.id}/bookmark`);
+        addToast('Đã bỏ đánh dấu công việc', 'success');
+      }
+    } catch (err) {
+      const rollbackTask = { ...taskRef.current, is_bookmarked: !next };
+      setIsBookmarked(!next);
+      taskRef.current = rollbackTask;
+      onUpdatedRef.current(rollbackTask);
+      addToast(err.response?.data?.detail || 'Cập nhật đánh dấu thất bại', 'error');
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ width: 760, maxHeight: '90vh', overflow: 'auto' }}>
@@ -1501,6 +1527,20 @@ function TaskDetailModal({ task, projectId, members, userMap, canManage, canMana
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <div className="modal-title" style={{ marginBottom: 0 }}>Chi tiết công việc</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={toggleBookmark}
+              title={isBookmarked ? 'Bỏ đánh dấu' : 'Đánh dấu để xem sau'}
+              style={{
+                color: isBookmarked ? 'var(--orange)' : 'var(--text-secondary)',
+                borderColor: isBookmarked ? 'rgba(240,136,62,0.35)' : 'var(--border)',
+                background: isBookmarked ? 'rgba(240,136,62,0.1)' : 'var(--bg-secondary)',
+              }}
+            >
+              <Star size={14} fill={isBookmarked ? 'currentColor' : 'none'} />
+              {isBookmarked ? 'Đã đánh dấu' : 'Đánh dấu'}
+            </button>
             <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
               {[{ key: 'detail', label: 'Chi tiết' }, { key: 'activity', label: 'Lịch sử' }].map(tab => (
                 <button
