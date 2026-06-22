@@ -26,8 +26,8 @@ def main() -> int:
         print("ERROR: Missing GEMINI_API_KEY, OPENROUTER_API_KEY or OPENAI_API_KEY.")
         return 1
 
-    left = "kiểm tra trùng lịch đặt phòng"
-    right = "phát hiện khung giờ phòng học bị trùng trước khi gửi yêu cầu"
+    left = "kiem tra trung lich dat phong"
+    right = "phat hien khung gio phong hoc bi trung truoc khi gui yeu cau"
     try:
         vectors, used_model = _call_embedding_api_batched([left, right])
     except Exception as exc:
