@@ -24,7 +24,7 @@ from app.crud import task as crud_task
 router = APIRouter(tags=["Tasks & Kanban"])
 
 DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small"
-DEFAULT_DUPLICATE_THRESHOLD = 0.88
+DEFAULT_DUPLICATE_THRESHOLD = 0.90
 EMBEDDING_FAILURE_COOLDOWN_SECONDS = 300
 _embedding_disabled_until = 0.0
 _duplicate_check_cache: dict[str, tuple[float, schemas.TaskDuplicateCheckResponse]] = {}
