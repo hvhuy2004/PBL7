@@ -1096,7 +1096,8 @@ def _fallback_module_name(prompt: str) -> str:
     text = _strip_vietnamese_accents(prompt).lower()
     module_match = re.search(r"(?:crud|module|chuc nang|tinh nang)\s+([^,.;]+)", text)
     raw_module = module_match.group(1).strip() if module_match else "chuc nang"
-    for marker in [" nhu ", " gom ", " bao gom ", " voi ", " giao cho ", " deadline ", " han ", " trong tuan "]:
+    raw_module = raw_module.split(":", 1)[0].strip()
+    for marker in [" nhu ", " gom ", " bao gom ", " voi ", " giao cho ", " deadline ", " han ", " trong tuan ", " ui ", " api ", " test ", " kiem thu ", " mention "]:
         raw_module = raw_module.split(marker)[0].strip()
     return _humanize_module_name(raw_module)
 
@@ -1139,6 +1140,14 @@ def _fallback_template_for_item(item: str, module: str) -> tuple[str, str, str, 
             f"Kiểm thử các luồng chính, lỗi nhập liệu và phân quyền của chức năng {module}.",
             "Medium",
             "Task",
+            4,
+        )
+    if any(token in item for token in ["mention", "nhac ten", "nhac trong", "@"]):
+        return (
+            f"Xu ly mention trong {module}",
+            f"Cai dat luong nhac thanh vien va tao thong bao lien quan cho chuc nang {module}.",
+            "Medium",
+            "Feature",
             4,
         )
     if any(token in item for token in ["tai lieu", "docs", "document", "huong dan"]):
@@ -1312,7 +1321,9 @@ def _assignment_tags(text: str) -> set[str]:
         tags.add("api")
     if any(token in normalized for token in ["ui", "giao dien", "frontend", "form", "man hinh"]):
         tags.add("ui")
-    if any(token in normalized for token in ["kiem thu", "test", "qa", "bug", "loi"]):
+    if any(token in normalized for token in ["mention", "nhac ten", "nhac trong", "@"]):
+        tags.add("mention")
+    if any(token in normalized for token in ["kiem thu", "kiem tra", "test", "qa", "bug", "loi"]):
         tags.add("test")
     if any(token in normalized for token in ["tai lieu", "docs", "document", "huong dan"]):
         tags.add("docs")
@@ -1345,14 +1356,38 @@ def _explicit_assignee_for_draft(
     return None
 
 
+def _prompt_assignment_pairs(prompt: str, members: list[dict]) -> list[tuple[set[str], int]]:
+    prompt_text = _strip_vietnamese_accents(prompt).lower()
+    segments = [segment.strip() for segment in re.split(r"[,;.\n]+", prompt_text) if segment.strip()]
+    pairs: list[tuple[set[str], int]] = []
+    seen: set[tuple[tuple[str, ...], int]] = set()
+
+    for segment in segments:
+        tags = _assignment_tags(segment)
+        if not tags:
+            continue
+        for member in members:
+            if not _segment_mentions_member(segment, member):
+                continue
+            key = (tuple(sorted(tags)), member["id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            pairs.append((tags, member["id"]))
+            break
+    return pairs
+
+
 def _looks_like_multi_member_prompt(prompt: str) -> bool:
     text = _strip_vietnamese_accents(prompt).lower()
     return " va " in f" {text} " or "," in text or "cho team" in text or "cho nhom" in text
 
 
-def _has_explicit_assignee_list(prompt: str) -> bool:
+def _has_explicit_assignee_list(prompt: str, members: list[dict] | None = None) -> bool:
     text = _strip_vietnamese_accents(prompt).lower()
-    return bool(re.search(r"\b(giao|phan cong|assign)\s+cho\b", text))
+    if bool(re.search(r"\b(giao|phan cong|assign)\s+cho\b", text)):
+        return True
+    return bool(members and len(_prompt_assignment_pairs(prompt, members)) >= 2)
 
 
 def _looks_like_single_task_prompt(prompt: str) -> bool:
@@ -1442,6 +1477,77 @@ def _align_single_draft_with_prompt(
         draft.task_type = "Feature"
 
     return draft
+
+
+def _prompt_item_from_tags(tags: set[str]) -> str:
+    for item in ["ui", "api", "mention", "test", "docs", "data"]:
+        if item in tags:
+            return item
+    return next(iter(tags), "task")
+
+
+def _draft_for_prompt_pair(
+    tags: set[str],
+    member_id: int,
+    *,
+    prompt: str,
+    members: list[dict],
+) -> schemas.AITaskParseResponse:
+    module_name = _fallback_module_name(prompt)
+    title, description, priority, task_type, estimated_hours = _fallback_template_for_item(
+        _prompt_item_from_tags(tags),
+        module_name,
+    )
+    member = next((m for m in members if m["id"] == member_id), None)
+    return schemas.AITaskParseResponse(
+        title=title[:255],
+        description=description,
+        priority=priority,
+        task_type=task_type,
+        assignee_id=member_id,
+        assignee_name=member["full_name"] if member else None,
+        estimated_hours=estimated_hours,
+        confidence=0.86,
+        notes="Da dieu chinh theo cap hang muc - nguoi phu trach trong prompt.",
+    )
+
+
+def _align_drafts_with_prompt_assignments(
+    drafts: list[schemas.AITaskParseResponse],
+    *,
+    prompt: str,
+    members: list[dict],
+) -> list[schemas.AITaskParseResponse]:
+    pairs = _prompt_assignment_pairs(prompt, members)
+    if len(pairs) < 2:
+        return drafts
+
+    aligned: list[schemas.AITaskParseResponse] = []
+    used_indexes: set[int] = set()
+    for pair_tags, member_id in pairs:
+        best_index = None
+        best_score = -1
+        for index, draft in enumerate(drafts):
+            if index in used_indexes:
+                continue
+            draft_tags = _assignment_tags(" ".join(str(value or "") for value in [draft.title, draft.description, draft.task_type]))
+            score = len(pair_tags & draft_tags)
+            if score > best_score:
+                best_index = index
+                best_score = score
+
+        if best_index is not None and best_score > 0:
+            draft = drafts[best_index]
+            used_indexes.add(best_index)
+        else:
+            draft = _draft_for_prompt_pair(pair_tags, member_id, prompt=prompt, members=members)
+
+        member = next((m for m in members if m["id"] == member_id), None)
+        draft.assignee_id = member_id
+        draft.assignee_name = member["full_name"] if member else draft.assignee_name
+        aligned.append(draft)
+
+    return aligned or drafts
 
 
 def _task_weight(draft: schemas.AITaskParseResponse, now_dt: datetime) -> float:
@@ -1544,7 +1650,9 @@ def _rebalance_drafts(
     workload_map = {m["id"]: dict(m) for m in workload}
     window_start, window_end, _ = _planning_window(prompt, now_dt)
 
-    if len(mentioned_ids) >= 2 and _has_explicit_assignee_list(prompt):
+    assignment_pairs = _prompt_assignment_pairs(prompt, members)
+
+    if len(mentioned_ids) >= 2 and _has_explicit_assignee_list(prompt, members):
         assigned_weight = {mid: 0.0 for mid in mentioned_ids}
         assigned_count = {mid: 0 for mid in mentioned_ids}
         for index, draft in enumerate(drafts):
@@ -1553,6 +1661,26 @@ def _rebalance_drafts(
             explicit_id = _explicit_assignee_for_draft(draft, prompt, members)
             if explicit_id in mentioned_ids:
                 chosen_id = explicit_id
+            elif assignment_pairs:
+                draft_tags = _assignment_tags(" ".join(str(value or "") for value in [draft.title, draft.description, draft.task_type]))
+                matching_ids = [
+                    member_id
+                    for pair_tags, member_id in assignment_pairs
+                    if member_id in mentioned_ids and draft_tags and not draft_tags.isdisjoint(pair_tags)
+                ]
+                if matching_ids:
+                    chosen_id = min(
+                        matching_ids,
+                        key=lambda mid: (
+                            assigned_count[mid],
+                            assigned_weight[mid],
+                            workload_map[mid]["workload_score"],
+                            workload_map[mid]["open_tasks"],
+                            mid,
+                        ),
+                    )
+                else:
+                    chosen_id = mentioned_ids[index % len(mentioned_ids)]
             elif task_candidates == mentioned_ids:
                 chosen_id = mentioned_ids[index % len(mentioned_ids)]
             else:
@@ -1944,6 +2072,12 @@ def parse_task_backlog_prompt(
 
     if _looks_like_single_task_prompt(prompt) and len(drafts) > 1:
         drafts = [_align_single_draft_with_prompt(_pick_single_requested_draft(drafts, prompt, members), prompt)]
+
+    drafts = _align_drafts_with_prompt_assignments(
+        drafts,
+        prompt=prompt,
+        members=members,
+    )
 
     drafts = _rebalance_drafts(
         drafts,
