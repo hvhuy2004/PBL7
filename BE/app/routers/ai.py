@@ -791,7 +791,7 @@ def _preferred_roles_for_task(draft: schemas.AITaskParseResponse) -> list[str]:
     text = _strip_vietnamese_accents(" ".join(str(x or "") for x in [draft.title, draft.description, draft.task_type])).lower()
     if any(word in text for word in ["test", "kiem thu", "qa", "verify", "verification", "test case"]):
         return ["tester"]
-    if any(word in text for word in ["api", "backend", "database", "server", "auth", "xac thuc", "dang nhap", "quen mat khau"]):
+    if any(word in text for word in ["api", "backend", "database", "server", "auth", "xac thuc", "dang nhap", "dang ki", "dang ky", "quen mat khau", "model", "schema", "csdl", "du lieu"]):
         return ["developer", "manager"]
     if any(word in text for word in ["ui", "frontend", "giao dien", "man hinh", "form"]):
         return ["developer", "manager"]
@@ -1581,6 +1581,68 @@ def _candidate_ids_for_task(
     return role_matches or candidate_ids
 
 
+def _ensure_mentioned_member_coverage(
+    drafts: list[schemas.AITaskParseResponse],
+    *,
+    mentioned_ids: list[int],
+    members: list[dict],
+    workload_map: dict[int, dict],
+) -> None:
+    if len(mentioned_ids) < 2 or len(drafts) < len(mentioned_ids):
+        return
+
+    member_by_id = {m["id"]: m for m in members}
+
+    def counts_for_drafts() -> dict[int, int]:
+        counts = {member_id: 0 for member_id in mentioned_ids}
+        for draft in drafts:
+            if draft.assignee_id in counts:
+                counts[draft.assignee_id] += 1
+        return counts
+
+    def apply_assignment(draft: schemas.AITaskParseResponse, member_id: int) -> None:
+        draft.assignee_id = member_id
+        member = member_by_id.get(member_id)
+        draft.assignee_name = member["full_name"] if member else draft.assignee_name
+
+    for _ in range(len(mentioned_ids) * 2):
+        counts = counts_for_drafts()
+        missing_ids = [member_id for member_id, count in counts.items() if count == 0]
+        if not missing_ids:
+            return
+
+        missing_ids.sort(key=lambda member_id: (
+            0 if workload_map.get(member_id, {}).get("project_role") == "tester" else 1,
+            workload_map.get(member_id, {}).get("workload_score", 0),
+            member_id,
+        ))
+        missing_id = missing_ids[0]
+        missing_role = workload_map.get(missing_id, {}).get("project_role")
+        best_index = None
+        best_score = None
+        for index, draft in enumerate(drafts):
+            current_id = draft.assignee_id
+            if current_id == missing_id:
+                continue
+            preferred_roles = _preferred_roles_for_task(draft)
+            role_match = bool(missing_role and missing_role in preferred_roles)
+            current_count = counts.get(current_id, 0)
+            score = (
+                0 if role_match else 1,
+                0 if current_count > 1 else 1,
+                -current_count,
+                workload_map.get(missing_id, {}).get("workload_score", 0),
+                index,
+            )
+            if best_score is None or score < best_score:
+                best_score = score
+                best_index = index
+
+        if best_index is None:
+            return
+        apply_assignment(drafts[best_index], missing_id)
+
+
 def _choose_due_slot_for_member(
     assignee_id: int,
     *,
@@ -1700,6 +1762,13 @@ def _rebalance_drafts(
             assigned_weight[chosen_id] += task_weight
             assigned_count[chosen_id] += 1
 
+        _ensure_mentioned_member_coverage(
+            drafts,
+            mentioned_ids=mentioned_ids,
+            members=members,
+            workload_map=workload_map,
+        )
+
         if window_start and window_end and not _has_explicit_weekday(prompt):
             used_dates_by_member = {}
             for index, draft in enumerate(drafts):
@@ -1784,6 +1853,13 @@ def _rebalance_drafts(
         member = next((m for m in members if m["id"] == chosen_id), None)
         draft.assignee_id = chosen_id
         draft.assignee_name = member["full_name"] if member else draft.assignee_name
+
+    _ensure_mentioned_member_coverage(
+        drafts,
+        mentioned_ids=mentioned_ids,
+        members=members,
+        workload_map=workload_map,
+    )
 
     if window_start and window_end and not _has_explicit_weekday(prompt):
         used_dates_by_member = {}
