@@ -104,6 +104,8 @@ def _member_workload_context(
             "window_tasks": 0,
             "window_estimated_hours": 0.0,
             "busy_dates": [],
+            "specialty_counts": {},
+            "specialty_tags": [],
         })
 
     week_end = datetime.combine(
@@ -118,10 +120,17 @@ def _member_workload_context(
     ).all()
 
     for task in tasks:
-        if task.progress_percent >= 100:
-            continue
         member = member_map.get(task.assignee_id)
         if not member:
+            continue
+        task_tags = _assignment_tags(" ".join(str(value or "") for value in [
+            task.title,
+            task.description,
+            task.task_type,
+        ]))
+        for tag in task_tags:
+            member["specialty_counts"][tag] = member["specialty_counts"].get(tag, 0) + 1
+        if task.progress_percent >= 100:
             continue
         member["open_tasks"] += 1
         if task.estimated_hours is not None:
@@ -153,6 +162,13 @@ def _member_workload_context(
         if member["nearest_due_date"]:
             member["nearest_due_date"] = member["nearest_due_date"].isoformat()
         member["busy_dates"].sort()
+        member["specialty_tags"] = [
+            tag
+            for tag, _ in sorted(
+                member["specialty_counts"].items(),
+                key=lambda item: (-item[1], item[0]),
+            )
+        ][:4]
 
     return sorted(member_map.values(), key=lambda item: (item["workload_score"], item["open_tasks"], item["id"]))
 
@@ -1571,6 +1587,26 @@ def _candidate_ids_for_task(
     candidate_ids: list[int],
     workload_map: dict[int, dict],
 ) -> list[int]:
+    draft_tags = _assignment_tags(" ".join(str(value or "") for value in [
+        draft.title,
+        draft.description,
+        draft.task_type,
+    ]))
+    if draft_tags:
+        prompt_hint_matches = [
+            mid for mid in candidate_ids
+            if draft_tags.intersection(set(workload_map[mid].get("prompt_hint_tags") or []))
+        ]
+        if prompt_hint_matches:
+            return prompt_hint_matches
+
+        specialty_matches = [
+            mid for mid in candidate_ids
+            if draft_tags.intersection(set(workload_map[mid].get("specialty_tags") or []))
+        ]
+        if specialty_matches:
+            return specialty_matches
+
     preferred_roles = _preferred_roles_for_task(draft)
     if not preferred_roles:
         return candidate_ids
@@ -1643,6 +1679,79 @@ def _ensure_mentioned_member_coverage(
         apply_assignment(drafts[best_index], missing_id)
 
 
+def _member_fit_score_for_draft(
+    draft: schemas.AITaskParseResponse,
+    member_id: int | None,
+    workload_map: dict[int, dict],
+) -> int:
+    if member_id is None or member_id not in workload_map:
+        return 0
+    member = workload_map[member_id]
+    score = 0
+    draft_tags = _assignment_tags(" ".join(str(value or "") for value in [
+        draft.title,
+        draft.description,
+        draft.task_type,
+    ]))
+    specialty_tags = set(member.get("specialty_tags") or [])
+    prompt_hint_tags = set(member.get("prompt_hint_tags") or [])
+    score += 5 * len(draft_tags.intersection(prompt_hint_tags))
+    score += 4 * len(draft_tags.intersection(specialty_tags))
+    preferred_roles = _preferred_roles_for_task(draft)
+    if preferred_roles and member.get("project_role") in preferred_roles:
+        score += 3
+    if "test" in draft_tags and member.get("project_role") == "tester":
+        score += 3
+    if {"api", "data"}.intersection(draft_tags) and member.get("project_role") in {"developer", "manager"}:
+        score += 1
+    if "ui" in draft_tags and member.get("project_role") in {"developer", "manager"}:
+        score += 1
+    return score
+
+
+def _improve_assignment_fit(
+    drafts: list[schemas.AITaskParseResponse],
+    *,
+    candidate_ids: list[int],
+    members: list[dict],
+    workload_map: dict[int, dict],
+) -> None:
+    if len(drafts) < 2 or len(candidate_ids) < 2:
+        return
+    member_by_id = {m["id"]: m for m in members}
+
+    for _ in range(len(drafts)):
+        improved = False
+        for left_index in range(len(drafts)):
+            for right_index in range(left_index + 1, len(drafts)):
+                left = drafts[left_index]
+                right = drafts[right_index]
+                left_id = left.assignee_id
+                right_id = right.assignee_id
+                if left_id == right_id or left_id not in candidate_ids or right_id not in candidate_ids:
+                    continue
+                current_score = (
+                    _member_fit_score_for_draft(left, left_id, workload_map)
+                    + _member_fit_score_for_draft(right, right_id, workload_map)
+                )
+                swapped_score = (
+                    _member_fit_score_for_draft(left, right_id, workload_map)
+                    + _member_fit_score_for_draft(right, left_id, workload_map)
+                )
+                if swapped_score <= current_score:
+                    continue
+                left.assignee_id, right.assignee_id = right_id, left_id
+                left_member = member_by_id.get(left.assignee_id)
+                right_member = member_by_id.get(right.assignee_id)
+                if left_member:
+                    left.assignee_name = left_member["full_name"]
+                if right_member:
+                    right.assignee_name = right_member["full_name"]
+                improved = True
+        if not improved:
+            return
+
+
 def _choose_due_slot_for_member(
     assignee_id: int,
     *,
@@ -1713,6 +1822,18 @@ def _rebalance_drafts(
     window_start, window_end, _ = _planning_window(prompt, now_dt)
 
     assignment_pairs = _prompt_assignment_pairs(prompt, members)
+    if len(mentioned_ids) >= 3 and not assignment_pairs:
+        for index, member_id in enumerate(mentioned_ids):
+            if member_id not in workload_map:
+                continue
+            hints = set(workload_map[member_id].get("prompt_hint_tags") or [])
+            if index == 0:
+                hints.update({"api", "data"})
+            elif index == len(mentioned_ids) - 1:
+                hints.add("test")
+            else:
+                hints.update({"ui", "docs", "mention"})
+            workload_map[member_id]["prompt_hint_tags"] = sorted(hints)
 
     if len(mentioned_ids) >= 2 and _has_explicit_assignee_list(prompt, members):
         assigned_weight = {mid: 0.0 for mid in mentioned_ids}
@@ -1765,6 +1886,12 @@ def _rebalance_drafts(
         _ensure_mentioned_member_coverage(
             drafts,
             mentioned_ids=mentioned_ids,
+            members=members,
+            workload_map=workload_map,
+        )
+        _improve_assignment_fit(
+            drafts,
+            candidate_ids=candidate_ids,
             members=members,
             workload_map=workload_map,
         )
@@ -1857,6 +1984,12 @@ def _rebalance_drafts(
     _ensure_mentioned_member_coverage(
         drafts,
         mentioned_ids=mentioned_ids,
+        members=members,
+        workload_map=workload_map,
+    )
+    _improve_assignment_fit(
+        drafts,
+        candidate_ids=candidate_ids,
         members=members,
         workload_map=workload_map,
     )
