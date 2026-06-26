@@ -692,6 +692,28 @@ def _strip_vietnamese_accents(value: str) -> str:
     return "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn").replace("đ", "d").replace("Đ", "D")
 
 
+def _infer_time_of_day(text: str) -> datetime_time | None:
+    normalized = _strip_vietnamese_accents(text or "").lower()
+    patterns = [
+        r"\b(?:truoc|luc|den|han|deadline|xong truoc)?\s*(\d{1,2})\s*h(?:\s*(\d{1,2}))?\b",
+        r"\b(?:truoc|luc|den|han|deadline|xong truoc)?\s*(\d{1,2}):(\d{2})\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, normalized)
+        if not match:
+            continue
+        hour = int(match.group(1))
+        minute = int(match.group(2) or 0)
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return datetime_time(hour, minute, 0)
+    return None
+
+
+def _combine_due_date(target_date, prompt: str, now: datetime) -> datetime:
+    due_time = _infer_time_of_day(prompt) or datetime_time(23, 59, 59)
+    return datetime.combine(target_date, due_time, tzinfo=now.tzinfo)
+
+
 def _infer_vietnamese_due_date(prompt: str, now: datetime) -> datetime | None:
     text = _strip_vietnamese_accents(prompt).lower()
     relative_days = [
@@ -703,11 +725,11 @@ def _infer_vietnamese_due_date(prompt: str, now: datetime) -> datetime | None:
     for pattern, days_ahead in relative_days:
         if re.search(pattern, text):
             target_date = now.date() + timedelta(days=days_ahead)
-            return datetime.combine(target_date, datetime_time(23, 59, 59), tzinfo=now.tzinfo)
+            return _combine_due_date(target_date, prompt, now)
 
     if "tuan nay" in text and not any(token in text for token in ["thu 2", "thu hai", "thu 3", "thu ba", "thu 4", "thu tu", "thu 5", "thu nam", "thu 6", "thu sau", "thu 7", "thu bay", "chu nhat", "cn"]):
         target_date = now.date() + timedelta(days=6 - now.weekday())
-        return datetime.combine(target_date, datetime_time(23, 59, 59), tzinfo=now.tzinfo)
+        return _combine_due_date(target_date, prompt, now)
 
     weekday_patterns = [
         (0, ["thu 2", "thu hai"]),
@@ -732,10 +754,10 @@ def _infer_vietnamese_due_date(prompt: str, now: datetime) -> datetime | None:
     elif "tuan nay" not in text:
         days_ahead = (weekday - now.weekday()) % 7
         target_date = now.date() + timedelta(days=days_ahead)
-        return datetime.combine(target_date, datetime_time(23, 59, 59), tzinfo=now.tzinfo)
+        return _combine_due_date(target_date, prompt, now)
 
     target_date = base_monday + timedelta(days=weekday)
-    return datetime.combine(target_date, datetime_time(23, 59, 59), tzinfo=now.tzinfo)
+    return _combine_due_date(target_date, prompt, now)
 
 
 def _has_explicit_weekday(prompt: str) -> bool:
@@ -1162,6 +1184,14 @@ def _fallback_requested_items(prompt: str) -> list[str]:
 
 
 def _fallback_template_for_item(item: str, module: str) -> tuple[str, str, str, str, int]:
+    if any(token in item for token in ["checklist", "nghiem thu", "acceptance"]):
+        return (
+            f"Chuẩn bị checklist nghiệm thu {module}",
+            f"Soạn checklist tiêu chí nghiệm thu, dữ liệu cần kiểm tra và kết quả mong đợi cho {module}.",
+            "Medium",
+            "Docs",
+            3,
+        )
     if any(token in item for token in ["ui", "giao dien", "frontend", "form", "man hinh"]):
         return (
             f"Thiết kế giao diện {module}",
@@ -1459,6 +1489,11 @@ def _assignment_tags(text: str) -> set[str]:
         tags.add("bug")
     if any(token in normalized for token in ["tai lieu", "docs", "document", "huong dan"]):
         tags.add("docs")
+    if any(token in normalized for token in ["checklist", "nghiem thu", "acceptance"]):
+        tags.add("checklist")
+        tags.add("docs")
+    if any(token in normalized for token in ["chuan bi", "demo", "bao cao", "slide"]):
+        tags.add("docs")
     if any(token in normalized for token in ["model", "database", "csdl", "schema", "du lieu"]):
         tags.add("data")
     return tags
@@ -1489,9 +1524,13 @@ def _explicit_assignee_for_draft(
 
 
 def _prompt_assignment_pairs(prompt: str, members: list[dict]) -> list[tuple[set[str], int]]:
+    return [(tags, member_id) for tags, member_id, _ in _prompt_assignment_segments(prompt, members)]
+
+
+def _prompt_assignment_segments(prompt: str, members: list[dict]) -> list[tuple[set[str], int, str]]:
     prompt_text = _strip_vietnamese_accents(prompt).lower()
     segments = [segment.strip() for segment in re.split(r"[,;.\n]+", prompt_text) if segment.strip()]
-    pairs: list[tuple[set[str], int]] = []
+    pairs: list[tuple[set[str], int, str]] = []
     seen: set[tuple[tuple[str, ...], int]] = set()
 
     for segment in segments:
@@ -1505,7 +1544,7 @@ def _prompt_assignment_pairs(prompt: str, members: list[dict]) -> list[tuple[set
             if key in seen:
                 continue
             seen.add(key)
-            pairs.append((tags, member["id"]))
+            pairs.append((tags, member["id"], segment))
             break
     return pairs
 
@@ -1612,10 +1651,30 @@ def _align_single_draft_with_prompt(
 
 
 def _prompt_item_from_tags(tags: set[str]) -> str:
-    for item in ["ui", "api", "mention", "test", "docs", "data"]:
+    for item in ["ui", "api", "mention", "test", "checklist", "docs", "data"]:
         if item in tags:
             return item
     return next(iter(tags), "task")
+
+
+def _assignment_segment_work_text(segment: str, member: dict | None) -> str:
+    text = _strip_vietnamese_accents(segment or "").lower()
+    if member:
+        for alias in _member_aliases_for_prompt(member):
+            if "@" in alias or " " in alias:
+                text = text.replace(alias, " ")
+            else:
+                text = re.sub(rf"(?<!\w){re.escape(alias)}(?!\w)", " ", text)
+    text = re.sub(r"^\s*(giao|phan cong)\s+", " ", text)
+    text = re.sub(
+        r"\b(cho|lam|xu ly|sua|fix|chuan bi|kiem thu|test|viet|thiet ke|xay dung)\b",
+        " ",
+        text,
+    )
+    for marker in [" deadline ", " han ", " truoc ", " xong ", " trong tuan ", " cuoi tuan ", " hom nay ", " ngay mai "]:
+        text = text.split(marker)[0]
+    text = re.sub(r"\s+", " ", text).strip(" ,.;:-")
+    return _humanize_module_name(text)
 
 
 def _draft_for_prompt_pair(
@@ -1624,13 +1683,25 @@ def _draft_for_prompt_pair(
     *,
     prompt: str,
     members: list[dict],
+    segment: str | None = None,
 ) -> schemas.AITaskParseResponse:
-    module_name = _fallback_module_name(prompt)
-    title, description, priority, task_type, estimated_hours = _fallback_template_for_item(
-        _prompt_item_from_tags(tags),
-        module_name,
-    )
     member = next((m for m in members if m["id"] == member_id), None)
+    module_name = (
+        _assignment_segment_work_text(segment or "", member)
+        if segment
+        else _fallback_module_name(prompt)
+    )
+    if "checklist" in tags:
+        title = "Chuẩn bị checklist nghiệm thu"
+        description = "Soạn checklist tiêu chí nghiệm thu, dữ liệu cần kiểm tra và kết quả mong đợi."
+        priority = "Medium"
+        task_type = "Docs"
+        estimated_hours = 3
+    else:
+        title, description, priority, task_type, estimated_hours = _fallback_template_for_item(
+            _prompt_item_from_tags(tags),
+            module_name,
+        )
     return schemas.AITaskParseResponse(
         title=title[:255],
         description=description,
@@ -1650,13 +1721,14 @@ def _align_drafts_with_prompt_assignments(
     prompt: str,
     members: list[dict],
 ) -> list[schemas.AITaskParseResponse]:
-    pairs = _prompt_assignment_pairs(prompt, members)
+    assignment_segments = _prompt_assignment_segments(prompt, members)
+    pairs = [(tags, member_id) for tags, member_id, _ in assignment_segments]
     if len(pairs) < 2:
         return drafts
 
     aligned: list[schemas.AITaskParseResponse] = []
     used_indexes: set[int] = set()
-    for pair_tags, member_id in pairs:
+    for pair_tags, member_id, segment in assignment_segments:
         best_index = None
         best_score = -1
         for index, draft in enumerate(drafts):
@@ -1672,7 +1744,7 @@ def _align_drafts_with_prompt_assignments(
             draft = drafts[best_index]
             used_indexes.add(best_index)
         else:
-            draft = _draft_for_prompt_pair(pair_tags, member_id, prompt=prompt, members=members)
+            draft = _draft_for_prompt_pair(pair_tags, member_id, prompt=prompt, members=members, segment=segment)
 
         member = next((m for m in members if m["id"] == member_id), None)
         draft.assignee_id = member_id
@@ -2199,8 +2271,9 @@ def _build_parse_tasks_system_prompt() -> str:
         "For a bug prompt, usually create one fix task; add a separate test task only if the prompt asks for testing or the fix is broad. "
         "For a testing-only prompt, create testing tasks only. For a documentation-only prompt, create Docs tasks only. "
         "If the prompt names people for parts such as 'UI cho Minh, API cho Huy, kiểm thử cho Linh', every explicitly assigned part must become a task and must keep the intended assignee; do not omit QA/tester parts. "
+        "If a prompt names several people with separate responsibilities, create at least one task for every named responsibility, including checklist, review, documentation, demo-prep, and acceptance work. "
         "Use null start_date and due_date unless the user gives a deadline, date, weekday, tomorrow/today, or planning window. "
-        "If the prompt includes dates like 'thứ 6 tuần sau', calculate due_date relative to current_time using Vietnam timezone and 23:59:59 when no time is specified. "
+        "If the prompt includes dates like 'thứ 6 tuần sau', calculate due_date relative to current_time using Vietnam timezone; preserve explicit times such as 'trước 17h' or '17:30', and use 23:59:59 only when no time is specified. "
         "Keep Vietnamese titles concrete and concise; avoid vague titles and avoid inventing extra scope."
     )
 
@@ -2232,7 +2305,7 @@ def parse_task_prompt(
         "Dates must be ISO 8601 or null. Use null when unknown. "
         "Vietnamese weekday rule: 'thu 6' or 'thứ 6' means Friday, not six weeks. "
         "'tuan nay' means the current Monday-Sunday week of current_time. "
-        "If no exact time is given for a due date, use 23:59:59 local time. "
+        "Preserve exact deadline times such as 'trước 17h' or '17:30'; if no exact time is given for a due date, use 23:59:59 local time. "
         "Only use an assignee_id from the provided members; otherwise null. "
         "Use workload_summary when assigning tasks: members with lower workload_score should receive more new tasks. "
         "Avoid assigning urgent work to members with many due_this_week or overdue_tasks."
