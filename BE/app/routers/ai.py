@@ -2249,15 +2249,16 @@ def parse_task_prompt(
         ensure_ascii=False,
     )
 
-    require_github_models = _env_bool("AI_PARSE_TASKS_REQUIRE_GITHUB", True)
+    strict_github_models = _env_bool("AI_PARSE_TASKS_REQUIRE_GITHUB", False)
+    github_only = _env_bool("AI_PARSE_TASKS_GITHUB_ONLY", True) or strict_github_models
     try:
         parsed = _call_ai_json(
             system_prompt,
             user_prompt,
-            require_github_models=require_github_models,
+            require_github_models=github_only,
         )
     except HTTPException as exc:
-        if require_github_models:
+        if strict_github_models:
             raise HTTPException(
                 status_code=exc.status_code,
                 detail=f"GitHub Models khong tao duoc task; da tat fallback noi bo: {exc.detail}",
@@ -2288,7 +2289,7 @@ def parse_task_prompt(
         now_dt=now_dt,
     )
     if not draft:
-        if require_github_models:
+        if strict_github_models:
             raise HTTPException(
                 status_code=502,
                 detail="GitHub Models tra ve draft task khong hop le; da tat fallback noi bo",
@@ -2342,26 +2343,27 @@ def parse_task_backlog_prompt(
 
     fallback_note = ""
     model_used = None
-    require_github_models = _env_bool("AI_PARSE_TASKS_REQUIRE_GITHUB", True)
+    strict_github_models = _env_bool("AI_PARSE_TASKS_REQUIRE_GITHUB", False)
+    github_only = _env_bool("AI_PARSE_TASKS_GITHUB_ONLY", True) or strict_github_models
     try:
         parsed = _call_ai_json(
             system_prompt,
             user_prompt,
             max_tokens=int(_env("AI_PARSE_TASKS_MAX_TOKENS", "1000")),
-            require_github_models=require_github_models,
+            require_github_models=github_only,
         )
         if isinstance(parsed, dict):
             model_used = parsed.pop("_ai_model", None)
             if model_used:
                 logger.info("AI parse-tasks used %s for project_id=%s", model_used, project_id)
                 _safe_terminal_print(f"[AI CALL] feature=parse-tasks project_id={project_id} used_model={model_used}")
-        if require_github_models and not str(model_used or "").startswith("GitHub Models"):
+        if github_only and not str(model_used or "").startswith("GitHub Models"):
             raise HTTPException(
                 status_code=502,
                 detail="Parse-to-task khong xac nhan duoc used_model tu GitHub Models",
             )
     except HTTPException as exc:
-        if require_github_models:
+        if strict_github_models:
             raise HTTPException(
                 status_code=exc.status_code,
                 detail=f"GitHub Models khong sinh duoc draft; da tat fallback noi bo: {exc.detail}",
@@ -2379,7 +2381,7 @@ def parse_task_backlog_prompt(
                     now_dt=now_dt,
                 )
             ],
-            "notes": "Mô hình phản hồi chưa ổn định, hệ thống đã dùng bộ sinh draft dự phòng.",
+            "notes": "GitHub Models chưa trả kết quả hợp lệ, hệ thống đã dùng bộ sinh draft dự phòng.",
         }
         fallback_note = parsed["notes"]
     raw_tasks = parsed.get("tasks") if isinstance(parsed, dict) else None
