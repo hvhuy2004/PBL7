@@ -37,6 +37,7 @@ DEFAULT_OPENROUTER_MODELS = [
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
 DEFAULT_GITHUB_MODELS = [
+    "openai/gpt-4.1",
     "openai/gpt-4o",
 ]
 DEFAULT_GITHUB_MODELS_DAILY_LIMIT = 50
@@ -55,6 +56,13 @@ def _env(name: str, default: str | None = None) -> str | None:
     if value not in (None, ""):
         return str(value)
     return os.getenv(name, default)
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = _env(name)
+    if value in (None, ""):
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def _project_member_context(db: Session, project_id: int) -> list[dict]:
@@ -515,7 +523,7 @@ def _post_github_models_json(
         max_tokens=max_tokens,
         extra_headers={
             "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": _env("GITHUB_MODELS_API_VERSION", "2026-03-10"),
+            "X-GitHub-Api-Version": _env("GITHUB_MODELS_API_VERSION", "2022-11-28"),
         },
     )
 
@@ -544,12 +552,18 @@ def _split_timeout_list(value: str | None, count: int) -> list[float]:
     return parsed[:count]
 
 
-def _call_ai_json(system_prompt: str, user_prompt: str, max_tokens: int | None = None) -> dict:
+def _call_ai_json(
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int | None = None,
+    *,
+    require_github_models: bool = False,
+) -> dict:
     github_key = _env("GITHUB_MODELS_TOKEN") or _env("GITHUB_TOKEN")
     github_exc = None
     if github_key:
         models = _split_model_list(_env("GITHUB_MODELS_TASK_MODEL"), DEFAULT_GITHUB_MODELS)
-        timeouts = _split_timeout_list(_env("GITHUB_MODELS_TASK_TIMEOUTS"), len(models))
+        timeouts = _split_timeout_list(_env("GITHUB_MODELS_TASK_TIMEOUTS") or "25", len(models))
         logger.info("AI GitHub Models configured: %s", ", ".join(models))
         for model, timeout_seconds in zip(models, timeouts):
             try:
@@ -569,6 +583,15 @@ def _call_ai_json(system_prompt: str, user_prompt: str, max_tokens: int | None =
                 if exc.status_code in {429, 502, 503, 504}:
                     continue
                 raise
+        if require_github_models:
+            if github_exc:
+                raise github_exc
+            raise HTTPException(status_code=502, detail="GitHub Models chua tra ve ket qua hop le")
+    elif require_github_models:
+        raise HTTPException(
+            status_code=503,
+            detail="Chua cau hinh GITHUB_MODELS_TOKEN/GITHUB_TOKEN cho che do demo bat buoc dung GitHub Models",
+        )
 
     gemini_key = _env("GEMINI_API_KEY")
     gemini_exc = None
@@ -2165,11 +2188,13 @@ def _build_parse_tasks_system_prompt() -> str:
         "Each task should include title,priority,task_type,assignee_id,estimated_hours; include description,start_date,due_date,notes only when useful. "
         "priority Low|Medium|High; task_type Task|Bug|Feature|Docs. Use only provided member ids or null. "
         "Convert the Vietnamese request into practical Kanban draft tasks for this exact project context. "
+        "For demo-quality output, cover every named component in the request and make descriptions specific enough to show clear acceptance intent. "
         "Choose the number of tasks from the actual scope, not from a fixed template: "
         "1 task for one small action, documentation item, simple bug fix, meeting/demo prep, or focused test; "
         "2-3 tasks for a small feature with a few clear parts; "
         "4-7 tasks only when the user asks for a broad module, CRUD, backlog, many named components, or explicitly says to split work. "
         "Do NOT automatically create database/API/UI/test tasks. Only create those layers when the prompt explicitly names them or the work genuinely needs separate owners/checkpoints. "
+        "When the prompt describes a broad feature, include implementation, integration, validation, edge cases, documentation, or QA only if they are natural parts of that feature; never force all layers. "
         "For non-coding work such as report, slides, demo script, data cleanup, review, research, or documentation, create operational tasks that match that work instead of software-layer tasks. "
         "For a bug prompt, usually create one fix task; add a separate test task only if the prompt asks for testing or the fix is broad. "
         "For a testing-only prompt, create testing tasks only. For a documentation-only prompt, create Docs tasks only. "
@@ -2224,9 +2249,19 @@ def parse_task_prompt(
         ensure_ascii=False,
     )
 
+    require_github_models = _env_bool("AI_PARSE_TASKS_REQUIRE_GITHUB", True)
     try:
-        parsed = _call_ai_json(system_prompt, user_prompt)
+        parsed = _call_ai_json(
+            system_prompt,
+            user_prompt,
+            require_github_models=require_github_models,
+        )
     except HTTPException as exc:
+        if require_github_models:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=f"GitHub Models khong tao duoc task; da tat fallback noi bo: {exc.detail}",
+            )
         fallback_drafts = _fallback_backlog_drafts(
             prompt=prompt,
             members=members,
@@ -2253,6 +2288,11 @@ def parse_task_prompt(
         now_dt=now_dt,
     )
     if not draft:
+        if require_github_models:
+            raise HTTPException(
+                status_code=502,
+                detail="GitHub Models tra ve draft task khong hop le; da tat fallback noi bo",
+            )
         fallback_drafts = _fallback_backlog_drafts(
             prompt=prompt,
             members=members,
@@ -2302,14 +2342,30 @@ def parse_task_backlog_prompt(
 
     fallback_note = ""
     model_used = None
+    require_github_models = _env_bool("AI_PARSE_TASKS_REQUIRE_GITHUB", True)
     try:
-        parsed = _call_ai_json(system_prompt, user_prompt)
+        parsed = _call_ai_json(
+            system_prompt,
+            user_prompt,
+            max_tokens=int(_env("AI_PARSE_TASKS_MAX_TOKENS", "1000")),
+            require_github_models=require_github_models,
+        )
         if isinstance(parsed, dict):
             model_used = parsed.pop("_ai_model", None)
             if model_used:
                 logger.info("AI parse-tasks used %s for project_id=%s", model_used, project_id)
                 _safe_terminal_print(f"[AI CALL] feature=parse-tasks project_id={project_id} used_model={model_used}")
+        if require_github_models and not str(model_used or "").startswith("GitHub Models"):
+            raise HTTPException(
+                status_code=502,
+                detail="Parse-to-task khong xac nhan duoc used_model tu GitHub Models",
+            )
     except HTTPException as exc:
+        if require_github_models:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=f"GitHub Models khong sinh duoc draft; da tat fallback noi bo: {exc.detail}",
+            )
         logger.warning("AI parse-tasks fallback for project_id=%s: %s", project_id, exc.detail)
         _safe_terminal_print(f"[AI FALLBACK] feature=parse-tasks project_id={project_id} reason={str(exc.detail)[:220]}")
         model_used = "Dự phòng nội bộ"
