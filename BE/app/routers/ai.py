@@ -1111,11 +1111,16 @@ def _humanize_module_name(value: str) -> str:
 def _fallback_module_name(prompt: str) -> str:
     text = _strip_vietnamese_accents(prompt).lower()
     module_match = re.search(r"(?:crud|module|chuc nang|tinh nang)\s+([^,.;]+)", text)
-    raw_module = module_match.group(1).strip() if module_match else "chuc nang"
+    raw_module = module_match.group(1).strip() if module_match else text
     raw_module = raw_module.split(":", 1)[0].strip()
-    for marker in [" nhu ", " gom ", " bao gom ", " voi ", " giao cho ", " deadline ", " han ", " trong tuan ", " ui ", " api ", " test ", " kiem thu ", " mention "]:
+    raw_module = re.sub(
+        r"^(tao|them|bo sung|sua loi|sua|fix|kiem thu|kiem tra|test|toi uu|refactor|chuan bi|tong hop|cap nhat|don|giao|lam)\s+",
+        "",
+        raw_module,
+    ).strip()
+    for marker in [" nhu ", " gom ", " bao gom ", " voi ", " giao cho ", " deadline ", " han ", " trong tuan ", " tuan sau ", " tuan nay ", " chieu mai ", " ngay mai ", " ui ", " api ", " test ", " kiem thu ", " mention "]:
         raw_module = raw_module.split(marker)[0].strip()
-    return _humanize_module_name(raw_module)
+    return _humanize_module_name(raw_module[:80].strip() or "chuc nang")
 
 
 def _fallback_requested_items(prompt: str) -> list[str]:
@@ -1150,6 +1155,22 @@ def _fallback_template_for_item(item: str, module: str) -> tuple[str, str, str, 
             "Feature",
             5,
         )
+    if any(token in item for token in ["upload", "file dinh kem", "dinh kem", "attachment"]):
+        return (
+            f"Xử lý upload file cho {module}",
+            f"Hoàn thiện luồng tải lên, lưu metadata và hiển thị file đính kèm cho {module}.",
+            "Medium",
+            "Feature",
+            4,
+        )
+    if any(token in item for token in ["realtime", "thong bao", "notification", "websocket"]):
+        return (
+            f"Tích hợp thông báo realtime cho {module}",
+            f"Gửi và hiển thị thông báo realtime đúng ngữ cảnh cho {module}.",
+            "Medium",
+            "Feature",
+            4,
+        )
     if any(token in item for token in ["test", "kiem thu", "qa"]):
         return (
             f"Kiểm thử chức năng {module}",
@@ -1160,8 +1181,8 @@ def _fallback_template_for_item(item: str, module: str) -> tuple[str, str, str, 
         )
     if any(token in item for token in ["mention", "nhac ten", "nhac trong", "@"]):
         return (
-            f"Xu ly mention trong {module}",
-            f"Cai dat luong nhac thanh vien va tao thong bao lien quan cho chuc nang {module}.",
+            f"Xử lý mention trong {module}",
+            f"Cài đặt luồng nhắc thành viên và tạo thông báo liên quan cho chức năng {module}.",
             "Medium",
             "Feature",
             4,
@@ -1183,6 +1204,55 @@ def _fallback_template_for_item(item: str, module: str) -> tuple[str, str, str, 
     )
 
 
+def _fallback_specific_templates(text: str) -> list[tuple[str, str, str, str, int]]:
+    if "don du lieu demo" in text:
+        return [
+            ("Xóa task rác khỏi dữ liệu demo", "Rà soát dữ liệu demo và loại bỏ các task không phục vụ kịch bản bảo vệ.", "Medium", "Task", 3),
+            ("Giữ lại các task AI mẫu quan trọng", "Đảm bảo các task minh họa prompt-to-task, chống trùng và tổng kết vẫn còn trên board.", "Medium", "Task", 2),
+            ("Kiểm tra tài khoản demo Nguyễn An", "Đăng nhập và kiểm tra quyền thao tác của tài khoản demo trước buổi bảo vệ.", "High", "Task", 2),
+        ]
+    if "keo tha" in text and "kanban" in text:
+        return [
+            ("Sửa lỗi kéo thả task sai cột trên board Kanban", "Khoanh vùng lỗi cập nhật column/order khi kéo thả task và sửa luồng đồng bộ trạng thái.", "High", "Bug", 4),
+            ("Kiểm thử kéo thả task sau khi sửa", "Kiểm thử kéo thả giữa các cột, reload board và kiểm tra thứ tự task.", "Medium", "Task", 3),
+        ]
+    if "kich ban demo" in text and "prompt-to-task" in text:
+        return [
+            ("Chuẩn bị kịch bản demo prompt-to-task", "Soạn prompt mẫu, thứ tự thao tác và dữ liệu minh họa cho phần demo prompt-to-task.", "Medium", "Docs", 3),
+        ]
+    if "quota" in text and "cooldown" in text:
+        return [
+            ("Kiểm thử quota AI trên production", "Gọi các luồng AI chính và ghi nhận giới hạn lượt dùng trong ngày.", "High", "Task", 3),
+            ("Kiểm thử cooldown AI trên production", "Gọi liên tiếp để xác nhận thông báo cooldown hiển thị đúng và không gọi provider thừa.", "High", "Task", 3),
+        ]
+    if "loc task" in text and "deadline" in text:
+        return [
+            ("Bổ sung lọc task theo người nhận", "Thêm điều kiện lọc theo assignee trên board và giữ trạng thái lọc khi tải lại dữ liệu.", "Medium", "Feature", 4),
+            ("Bổ sung lọc task theo deadline", "Thêm bộ lọc deadline/sắp đến hạn để hỗ trợ theo dõi tiến độ trên board.", "Medium", "Feature", 4),
+            ("Kiểm thử bộ lọc task trên board", "Kiểm thử kết hợp lọc người nhận, deadline và trạng thái board hiện tại.", "Medium", "Task", 3),
+        ]
+    if "mobile" in text and "modal" in text and "tao task" in text:
+        return [
+            ("Tối ưu giao diện mobile của modal tạo task", "Điều chỉnh layout, khoảng cách và thao tác nhập liệu để modal tạo task dùng tốt trên màn nhỏ.", "Medium", "Feature", 4),
+        ]
+    if "dashboard" in text and "api" in text and "refactor" in text:
+        return [
+            ("Refactor dashboard dùng API hiện có", "Đổi nguồn dữ liệu dashboard sang API hiện có mà không thay đổi giao diện người dùng.", "Medium", "Task", 4),
+        ]
+    if "api upload" in text and "ui preview" in text and "ten file tieng viet" in text:
+        return [
+            ("Sửa API upload", "Sửa luồng upload để lưu và trả về metadata file đúng định dạng.", "High", "Feature", 4),
+            ("Chỉnh UI preview file", "Cập nhật giao diện preview file sau khi upload để người dùng kiểm tra nhanh.", "Medium", "Task", 3),
+            ("Kiểm thử tên file tiếng Việt", "Kiểm thử upload và hiển thị tên file tiếng Việt có dấu.", "High", "Task", 3),
+        ]
+    if "feedback" in text and "slide" in text:
+        return [
+            ("Tổng hợp feedback người dùng sau demo", "Gom phản hồi, phân nhóm vấn đề và chọn các ý cần đưa vào báo cáo.", "Medium", "Task", 3),
+            ("Cập nhật slide báo cáo", "Bổ sung feedback, ảnh minh họa và các điều chỉnh sau demo vào slide báo cáo.", "Medium", "Docs", 3),
+        ]
+    return []
+
+
 def _fallback_backlog_drafts(
     *,
     prompt: str,
@@ -1194,13 +1264,12 @@ def _fallback_backlog_drafts(
     module = _fallback_module_name(prompt)
 
     mentioned_ids = _mentioned_member_ids(prompt, members)
-    if not mentioned_ids:
-        mentioned_ids = [m["id"] for m in members if m.get("project_role") in {"developer", "manager"}]
-    if not mentioned_ids:
-        mentioned_ids = [m["id"] for m in members]
 
     explicit_items = _fallback_requested_items(prompt)
-    if explicit_items:
+    specific_templates = _fallback_specific_templates(text)
+    if specific_templates:
+        templates = specific_templates
+    elif explicit_items:
         templates = [_fallback_template_for_item(item, module) for item in explicit_items]
     elif "crud" in text:
         templates = [
@@ -1232,7 +1301,15 @@ def _fallback_backlog_drafts(
 
     drafts = []
     for index, (title, desc, priority, task_type, hours) in enumerate(templates):
-        assignee_id = mentioned_ids[index % len(mentioned_ids)] if mentioned_ids else None
+        tags = _assignment_tags(" ".join([title, desc, task_type]))
+        if "test" in tags:
+            preferred_ids = [m["id"] for m in members if m.get("project_role") == "tester"]
+        elif "docs" in tags or any(token in text for token in ["demo", "bao cao", "slide", "feedback"]):
+            preferred_ids = [m["id"] for m in members if m.get("project_role") == "manager"]
+        else:
+            preferred_ids = [m["id"] for m in members if m.get("project_role") == "developer"]
+        candidate_ids = mentioned_ids or preferred_ids or [m["id"] for m in members]
+        assignee_id = candidate_ids[index % len(candidate_ids)] if candidate_ids else None
         assignee_name = next((m["full_name"] for m in members if m["id"] == assignee_id), None)
         draft = schemas.AITaskParseResponse(
             title=title.format(module=module)[:255],
@@ -1353,8 +1430,10 @@ def _assignment_tags(text: str) -> set[str]:
         tags.add("ui")
     if any(token in normalized for token in ["mention", "nhac ten", "nhac trong", "@"]):
         tags.add("mention")
-    if any(token in normalized for token in ["kiem thu", "kiem tra", "test", "qa", "bug", "loi"]):
+    if any(token in normalized for token in ["kiem thu", "kiem tra", "test", "qa"]):
         tags.add("test")
+    if any(token in normalized for token in ["bug", "loi", "fix", "sua loi"]):
+        tags.add("bug")
     if any(token in normalized for token in ["tai lieu", "docs", "document", "huong dan"]):
         tags.add("docs")
     if any(token in normalized for token in ["model", "database", "csdl", "schema", "du lieu"]):
