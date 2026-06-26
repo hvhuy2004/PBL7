@@ -1209,11 +1209,25 @@ def _fallback_backlog_drafts(
             ("Xây dựng danh sách, tìm kiếm và xóa {module}", "Cài đặt màn hình danh sách, lọc/tìm kiếm và xử lý xóa mềm nếu cần.", "Medium", "Feature", 5),
             ("Kiểm thử luồng CRUD {module}", "Kiểm thử các case tạo, đọc, cập nhật, xóa và phân quyền liên quan.", "Medium", "Task", 4),
         ]
+    elif any(token in text for token in ["tai lieu", "docs", "document", "huong dan"]):
+        templates = [
+            ("Viết tài liệu {module}", "Soạn hướng dẫn ngắn gọn, đúng luồng sử dụng và các lưu ý cần thiết.", "Low", "Docs", 3),
+        ]
+    elif any(token in text for token in ["bug", "loi", "fix", "sua loi"]):
+        templates = [
+            ("Sửa lỗi {module}", "Khoanh vùng nguyên nhân, cập nhật xử lý và kiểm tra lại case lỗi.", "High", "Bug", 4),
+        ]
+    elif any(token in text for token in ["kiem thu", "kiem tra", "test", "qa"]):
+        templates = [
+            ("Kiểm thử {module}", "Kiểm thử các luồng chính và ghi nhận lỗi nếu có.", "Medium", "Task", 3),
+        ]
+    elif any(token in text for token in ["bao cao", "slide", "demo", "kich ban"]):
+        templates = [
+            ("Chuẩn bị {module}", "Hoàn thiện nội dung, dữ liệu và bước trình bày cần thiết.", "Medium", "Task", 3),
+        ]
     else:
         templates = [
-            ("Phân tích yêu cầu {module}", "Làm rõ phạm vi, dữ liệu vào/ra và tiêu chí hoàn thành.", "Medium", "Task", 3),
-            ("Xây dựng chức năng {module}", "Cài đặt luồng chính và xử lý validate cần thiết.", "High", "Feature", 6),
-            ("Kiểm thử chức năng {module}", "Kiểm thử các luồng chính, lỗi nhập liệu và quyền truy cập.", "Medium", "Task", 4),
+            ("Hoàn thiện {module}", "Thực hiện hạng mục theo mô tả, đủ tiêu chí để cập nhật lên board.", "Medium", "Task", 4),
         ]
 
     drafts = []
@@ -2066,6 +2080,27 @@ def _ensure_draft_schedule(
     return drafts
 
 
+def _build_parse_tasks_system_prompt() -> str:
+    return (
+        "Return ONLY minified JSON: {\"tasks\":[...],\"notes\":string|null}. "
+        "Each task should include title,priority,task_type,assignee_id,estimated_hours; include description,start_date,due_date,notes only when useful. "
+        "priority Low|Medium|High; task_type Task|Bug|Feature|Docs. Use only provided member ids or null. "
+        "Convert the Vietnamese request into practical Kanban draft tasks for this exact project context. "
+        "Choose the number of tasks from the actual scope, not from a fixed template: "
+        "1 task for one small action, documentation item, simple bug fix, meeting/demo prep, or focused test; "
+        "2-3 tasks for a small feature with a few clear parts; "
+        "4-7 tasks only when the user asks for a broad module, CRUD, backlog, many named components, or explicitly says to split work. "
+        "Do NOT automatically create database/API/UI/test tasks. Only create those layers when the prompt explicitly names them or the work genuinely needs separate owners/checkpoints. "
+        "For non-coding work such as report, slides, demo script, data cleanup, review, research, or documentation, create operational tasks that match that work instead of software-layer tasks. "
+        "For a bug prompt, usually create one fix task; add a separate test task only if the prompt asks for testing or the fix is broad. "
+        "For a testing-only prompt, create testing tasks only. For a documentation-only prompt, create Docs tasks only. "
+        "If the prompt names people for parts such as 'UI cho Minh, API cho Huy, kiểm thử cho Linh', every explicitly assigned part must become a task and must keep the intended assignee; do not omit QA/tester parts. "
+        "Use null start_date and due_date unless the user gives a deadline, date, weekday, tomorrow/today, or planning window. "
+        "If the prompt includes dates like 'thứ 6 tuần sau', calculate due_date relative to current_time using Vietnam timezone and 23:59:59 when no time is specified. "
+        "Keep Vietnamese titles concrete and concise; avoid vague titles and avoid inventing extra scope."
+    )
+
+
 @router.post("/{project_id}/ai/parse-task", response_model=schemas.AITaskParseResponse)
 def parse_task_prompt(
     project_id: int,
@@ -2088,21 +2123,15 @@ def parse_task_prompt(
 
     system_prompt = (
         "You extract Vietnamese project-management requests into one task JSON. "
-        "ABSOLUTE RULE FOR TASK ORDERING: "
-        "Step 1: Database/Schema/Model tasks MUST be first. "
-        "Step 2: API/Backend logic tasks MUST be second. "
-        "Step 3: UI/Frontend/Integration tasks MUST be third. "
-        "Step 4: Testing/QA tasks MUST be last. "
-        "You MUST rearrange the generated tasks to match this exact technical execution order, regardless of the order in the user's prompt. "
-        "However, if a layer is not needed, just skip it. "
+        "Return only valid JSON for one practical Kanban task. "
         "priority must be Low, Medium, or High. task_type must be Task, Bug, Feature, or Docs. "
-        "Dates must be ISO 8601. Use null when unknown. "
+        "Dates must be ISO 8601 or null. Use null when unknown. "
         "Vietnamese weekday rule: 'thu 6' or 'thứ 6' means Friday, not six weeks. "
         "'tuan nay' means the current Monday-Sunday week of current_time. "
         "If no exact time is given for a due date, use 23:59:59 local time. "
         "Only use an assignee_id from the provided members; otherwise null. "
         "Use workload_summary when assigning tasks: members with lower workload_score should receive more new tasks. "
-        "Avoid assigning many urgent tasks to members with many due_this_week or overdue_tasks."
+        "Avoid assigning urgent work to members with many due_this_week or overdue_tasks."
     )
     user_prompt = json.dumps(
         {
@@ -2178,41 +2207,7 @@ def parse_task_backlog_prompt(
     now = now_dt.isoformat()
     workload = _member_workload_context(db, project_id, members, now_dt)
 
-    system_prompt = (
-        "You convert a Vietnamese project/backlog request into practical Kanban task drafts. "
-        "CRITICAL: Return ONLY valid, parseable JSON with shape {\"tasks\": [...], \"notes\": string|null}. "
-        "Do NOT wrap in markdown blocks, do NOT include trailing commas, and do NOT include any text outside the JSON. "
-        "Use compact JSON to keep the response short. Descriptions and notes should be concise. "
-        "Each task must have keys: title, description, priority, task_type, assignee_id, "
-        "assignee_name, start_date, due_date, estimated_hours, confidence, notes. "
-        "Create between 1 and 8 tasks. CRITICAL: If the user explicitly lists specific components/keywords in their prompt (e.g. 'giao diện, API, kết nối, kiểm thử'), you MUST create AT LEAST ONE DISTINCT TASK for EACH component listed. DO NOT combine them into a single task. "
-        "ABSOLUTE RULE FOR TASK ORDERING: "
-        "Step 1: Database/Schema/Model tasks MUST be first. "
-        "Step 2: API/Backend logic tasks MUST be second. "
-        "Step 3: UI/Frontend/Integration tasks MUST be third. "
-        "Step 4: Testing/QA tasks MUST be last. "
-        "You MUST rearrange the generated tasks to match this exact technical execution order, regardless of the order in the user's prompt. "
-        "However, if a layer is not needed, just skip it. "
-        "If the user asks for a module/feature with a short/general prompt (e.g., 'chức năng đăng ký', 'CRUD sản phẩm'), "
-        "you MUST act as a professional senior software architect. Dynamically analyze the feature and break it down into 4 to 8 highly specific, concrete engineering tasks (e.g., UI components, API endpoints, database schema, state management, security). "
-        "DO NOT use a rigid template. Provide real, varied, and specific technical tasks perfectly tailored to the exact feature requested to impress technical reviewers. "
-        "Always write specific, highly descriptive titles in Vietnamese instead of generic templates. "
-        "Do not create vague tasks such as 'do module'; make each task actionable. "
-        "priority must be Low, Medium, or High. task_type must be Task, Bug, Feature, or Docs. "
-        "Dates must be ISO 8601 or null. Use 23:59:59 local time if only a due date is implied. "
-        "Vietnamese weekday rule: 'thu 6' or 'thứ 6' means Friday, not six weeks. 'tuần sau' means the next week relative to current_time. Ensure you calculate dates correctly using the provided current_time. "
-        "Only use an assignee_id from the provided members; otherwise null."
-    )
-    system_prompt = (
-        "Return ONLY minified JSON: {\"tasks\":[...]}. "
-        "Each task needs only: title,priority,task_type,assignee_id,estimated_hours. "
-        "Do not add description, dates, notes, markdown, or extra keys. "
-        "priority Low|Medium|High; task_type Task|Bug|Feature|Docs. "
-        "Vietnamese request to 1-4 practical Kanban tasks. Use short Vietnamese titles. "
-        "Order: database/model, API/backend, UI/frontend, integration, testing last. "
-        "If prompt names UI/API/test, split them. If prompt names multiple modules joined by 'va'/'và', "
-        "cover every named module in the title or create separate tasks. Assign testing to tester role. Use only member ids."
-    )
+    system_prompt = _build_parse_tasks_system_prompt()
     compact_members = [
         {"id": m["id"], "name": m["full_name"], "role": m.get("project_role", "developer")}
         for m in members
@@ -2300,13 +2295,12 @@ def parse_task_backlog_prompt(
     notes_content = fallback_note or (parsed.get("notes") if isinstance(parsed, dict) else None) or ""
     if not notes_content:
         notes_content = "Đã tạo draft từ mô tả. Vui lòng kiểm tra lại trước khi lưu."
-    
+
     return schemas.AITaskBulkParseResponse(
         tasks=drafts,
         notes=notes_content,
         used_model=model_used,
     )
-
 
 @router.post("/{project_id}/ai/project-summary", response_model=schemas.AIProjectSummaryResponse)
 def summarize_project_status(
