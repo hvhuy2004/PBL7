@@ -2213,18 +2213,19 @@ def _rebalance_drafts(
             members=members,
             workload_map=workload_map,
         )
-        _improve_assignment_fit(
-            drafts,
-            candidate_ids=candidate_ids,
-            members=members,
-            workload_map=workload_map,
-        )
-        _ensure_mentioned_member_coverage(
-            drafts,
-            mentioned_ids=mentioned_ids,
-            members=members,
-            workload_map=workload_map,
-        )
+        if not assignment_pairs:
+            _improve_assignment_fit(
+                drafts,
+                candidate_ids=candidate_ids,
+                members=members,
+                workload_map=workload_map,
+            )
+            _ensure_mentioned_member_coverage(
+                drafts,
+                mentioned_ids=mentioned_ids,
+                members=members,
+                workload_map=workload_map,
+            )
 
         if window_start and window_end and not _has_explicit_weekday(prompt):
             used_dates_by_member = {}
