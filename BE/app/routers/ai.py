@@ -1890,6 +1890,54 @@ def _align_drafts_with_prompt_assignments(
     return aligned or drafts
 
 
+def _token_set_for_assignment_match(text: str) -> set[str]:
+    tokens = set(re.findall(r"[a-z0-9]+", _strip_vietnamese_accents(text or "").lower()))
+    stop_words = {
+        "tao", "backlog", "cho", "lam", "xu", "ly", "va", "voi", "trong", "cua",
+        "chuc", "nang", "task", "phan", "cong", "giao", "deadline", "han",
+    }
+    return {token for token in tokens if token not in stop_words and len(token) >= 2}
+
+
+def _lock_explicit_assignment_segments(
+    drafts: list[schemas.AITaskParseResponse],
+    *,
+    prompt: str,
+    members: list[dict],
+) -> list[schemas.AITaskParseResponse]:
+    assignment_segments = _prompt_assignment_segments(prompt, members)
+    if len(assignment_segments) < 2:
+        return drafts
+
+    member_by_id = {m["id"]: m for m in members}
+    used_indexes: set[int] = set()
+    for pair_tags, member_id, segment in assignment_segments:
+        member = member_by_id.get(member_id)
+        segment_tokens = _token_set_for_assignment_match(_assignment_segment_work_text(segment, member))
+        best_index = None
+        best_score = -1
+
+        for index, draft in enumerate(drafts):
+            if index in used_indexes:
+                continue
+            draft_text = " ".join(str(value or "") for value in [draft.title, draft.description, draft.task_type])
+            draft_tags = _assignment_tags(draft_text)
+            draft_tokens = _token_set_for_assignment_match(draft_text)
+            score = 10 * len(pair_tags & draft_tags) + len(segment_tokens & draft_tokens)
+            if score > best_score:
+                best_index = index
+                best_score = score
+
+        if best_index is None or best_score <= 0:
+            continue
+        draft = drafts[best_index]
+        draft.assignee_id = member_id
+        draft.assignee_name = member["full_name"] if member else draft.assignee_name
+        used_indexes.add(best_index)
+
+    return drafts
+
+
 def _task_weight(draft: schemas.AITaskParseResponse, now_dt: datetime) -> float:
     weight = draft.estimated_hours if draft.estimated_hours is not None else 4.0
     weight += {"High": 4.0, "Medium": 2.0, "Low": 1.0}.get(draft.priority, 2.0)
@@ -2657,6 +2705,11 @@ def parse_task_backlog_prompt(
         members=members,
         workload=workload,
         now_dt=now_dt,
+    )
+    drafts = _lock_explicit_assignment_segments(
+        drafts,
+        prompt=prompt,
+        members=members,
     )
     drafts = _ensure_draft_schedule(drafts, prompt=prompt, workload=workload, now_dt=now_dt)
 
