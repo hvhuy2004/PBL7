@@ -1149,6 +1149,7 @@ def _humanize_module_name(value: str) -> str:
         "nguoi dung": "người dùng",
         "san pham": "sản phẩm",
         "don hang": "đơn hàng",
+        "dashboard bao cao": "dashboard báo cáo",
     }
     return replacements.get(module, module or "chức năng")
 
@@ -1158,11 +1159,16 @@ def _fallback_module_name(prompt: str) -> str:
     module_match = re.search(r"(?:crud|module|chuc nang|tinh nang)\s+([^,.;]+)", text)
     raw_module = module_match.group(1).strip() if module_match else text
     raw_module = raw_module.split(":", 1)[0].strip()
-    raw_module = re.sub(
+    prefix_patterns = [
         r"^(tao|them|bo sung|sua loi|sua|fix|kiem thu|kiem tra|test|toi uu|refactor|chuan bi|tong hop|cap nhat|don|giao|lam)\s+",
-        "",
-        raw_module,
-    ).strip()
+        r"^(backlog|danh sach task|cac task)\s+",
+        r"^(nang cap|phat trien|hoan thien|xay dung)\s+",
+    ]
+    previous = None
+    while previous != raw_module:
+        previous = raw_module
+        for pattern in prefix_patterns:
+            raw_module = re.sub(pattern, "", raw_module).strip()
     for marker in [" nhu ", " gom ", " bao gom ", " voi ", " giao cho ", " deadline ", " han ", " trong tuan ", " tuan sau ", " tuan nay ", " chieu mai ", " ngay mai ", " ui ", " api ", " test ", " kiem thu ", " mention "]:
         raw_module = raw_module.split(marker)[0].strip()
     return _humanize_module_name(raw_module[:80].strip() or "chuc nang")
@@ -1527,7 +1533,46 @@ def _prompt_assignment_pairs(prompt: str, members: list[dict]) -> list[tuple[set
     return [(tags, member_id) for tags, member_id, _ in _prompt_assignment_segments(prompt, members)]
 
 
+def _assignee_pool_tail(prompt: str) -> str:
+    text = _strip_vietnamese_accents(prompt).lower()
+    match = re.search(r"\b(?:giao|phan cong|assign)\s+cho\b", text)
+    if not match:
+        return ""
+    tail = text[match.end():]
+    for marker in [" deadline ", " han ", " truoc ", " xong ", " trong tuan ", " tuan sau ", " tuan nay ", " hom nay ", " ngay mai "]:
+        tail = tail.split(marker)[0]
+    return tail.strip(" ,.;:")
+
+
+def _looks_like_assignee_pool(prompt: str, members: list[dict]) -> bool:
+    tail = _assignee_pool_tail(prompt)
+    if not tail:
+        return False
+    if _assignment_tags(tail):
+        return False
+    mentioned_in_tail = _mentioned_member_ids(tail, members)
+    if len(mentioned_in_tail) < 2:
+        return False
+
+    residue = tail
+    for member_id in mentioned_in_tail:
+        member = next((m for m in members if m["id"] == member_id), None)
+        if not member:
+            continue
+        for alias in _member_aliases_for_prompt(member):
+            if "@" in alias or " " in alias:
+                residue = residue.replace(alias, " ")
+            else:
+                residue = re.sub(rf"(?<!\w){re.escape(alias)}(?!\w)", " ", residue)
+    residue = re.sub(r"\b(va|voi|cung|team|nhom)\b|[,;/+&]", " ", residue)
+    residue = re.sub(r"\s+", " ", residue).strip()
+    return not residue
+
+
 def _prompt_assignment_segments(prompt: str, members: list[dict]) -> list[tuple[set[str], int, str]]:
+    if _looks_like_assignee_pool(prompt, members):
+        return []
+
     prompt_text = _strip_vietnamese_accents(prompt).lower()
     segments = [segment.strip() for segment in re.split(r"[,;.\n]+", prompt_text) if segment.strip()]
     pairs: list[tuple[set[str], int, str]] = []
@@ -1715,6 +1760,97 @@ def _draft_for_prompt_pair(
     )
 
 
+def _assignee_pool_filler_templates(module_name: str) -> list[tuple[str, str, str, str, int]]:
+    return [
+        (
+            f"Phân tích yêu cầu {module_name}",
+            f"Rà soát mục tiêu, dữ liệu cần hiển thị và tiêu chí hoàn thành cho {module_name}.",
+            "Medium",
+            "Task",
+            2,
+        ),
+        (
+            f"Thiết kế trải nghiệm {module_name}",
+            f"Xác định bố cục, trạng thái hiển thị và cách người dùng theo dõi thông tin trên {module_name}.",
+            "Medium",
+            "Feature",
+            4,
+        ),
+        (
+            f"Triển khai dữ liệu cho {module_name}",
+            f"Chuẩn bị luồng lấy, tổng hợp và hiển thị số liệu cần thiết cho {module_name}.",
+            "High",
+            "Feature",
+            5,
+        ),
+        (
+            f"Kiểm thử và nghiệm thu {module_name}",
+            f"Kiểm tra số liệu, trạng thái rỗng, lỗi tải dữ liệu và tiêu chí nghiệm thu của {module_name}.",
+            "Medium",
+            "Task",
+            3,
+        ),
+        (
+            f"Hoàn thiện bàn giao {module_name}",
+            f"Rà soát lại nội dung, ghi chú thay đổi và chuẩn bị thông tin bàn giao cho {module_name}.",
+            "Low",
+            "Docs",
+            2,
+        ),
+    ]
+
+
+def _ensure_assignee_pool_task_count(
+    drafts: list[schemas.AITaskParseResponse],
+    *,
+    prompt: str,
+    members: list[dict],
+    member_ids: set[int],
+) -> list[schemas.AITaskParseResponse]:
+    mentioned_ids = _mentioned_member_ids(prompt, members)
+    if (
+        len(mentioned_ids) < 2
+        or len(drafts) >= len(mentioned_ids)
+        or not _looks_like_assignee_pool(prompt, members)
+        or _fallback_requested_items(prompt)
+    ):
+        return drafts
+
+    text = _strip_vietnamese_accents(prompt).lower()
+    if not any(token in text for token in ["backlog", "module", "nang cap", "phat trien", "hoan thien", "xay dung", "chuc nang", "tinh nang"]):
+        return drafts
+
+    module_name = _fallback_module_name(prompt)
+    existing_titles = [draft.title for draft in drafts]
+    templates = _assignee_pool_filler_templates(module_name)
+    next_assignee_index = len(drafts)
+
+    for title, description, priority, task_type, estimated_hours in templates:
+        if len(drafts) >= len(mentioned_ids):
+            break
+        if _is_semantic_duplicate(title, existing_titles):
+            continue
+        assignee_id = mentioned_ids[next_assignee_index % len(mentioned_ids)]
+        member = next((m for m in members if m["id"] == assignee_id), None)
+        drafts.append(
+            schemas.AITaskParseResponse(
+                title=title[:255],
+                description=description,
+                priority=priority,
+                task_type=task_type,
+                assignee_id=assignee_id if assignee_id in member_ids else None,
+                assignee_name=member["full_name"] if member else None,
+                estimated_hours=estimated_hours,
+                confidence=0.82,
+                notes="Bổ sung để phủ đủ danh sách người được giao trong prompt.",
+            )
+        )
+        existing_titles.append(title)
+        next_assignee_index += 1
+
+    return drafts
+
+
 def _align_drafts_with_prompt_assignments(
     drafts: list[schemas.AITaskParseResponse],
     *,
@@ -1852,8 +1988,8 @@ def _ensure_mentioned_member_coverage(
             role_match = bool(missing_role and missing_role in preferred_roles)
             current_count = counts.get(current_id, 0)
             score = (
-                0 if role_match else 1,
                 0 if current_count > 1 else 1,
+                0 if role_match else 1,
                 -current_count,
                 workload_map.get(missing_id, {}).get("workload_score", 0),
                 index,
@@ -2083,6 +2219,12 @@ def _rebalance_drafts(
             members=members,
             workload_map=workload_map,
         )
+        _ensure_mentioned_member_coverage(
+            drafts,
+            mentioned_ids=mentioned_ids,
+            members=members,
+            workload_map=workload_map,
+        )
 
         if window_start and window_end and not _has_explicit_weekday(prompt):
             used_dates_by_member = {}
@@ -2181,6 +2323,12 @@ def _rebalance_drafts(
         members=members,
         workload_map=workload_map,
     )
+    _ensure_mentioned_member_coverage(
+        drafts,
+        mentioned_ids=mentioned_ids,
+        members=members,
+        workload_map=workload_map,
+    )
 
     if window_start and window_end and not _has_explicit_weekday(prompt):
         used_dates_by_member = {}
@@ -2272,6 +2420,8 @@ def _build_parse_tasks_system_prompt() -> str:
         "For a testing-only prompt, create testing tasks only. For a documentation-only prompt, create Docs tasks only. "
         "If the prompt names people for parts such as 'UI cho Minh, API cho Huy, kiểm thử cho Linh', every explicitly assigned part must become a task and must keep the intended assignee; do not omit QA/tester parts. "
         "If a prompt names several people with separate responsibilities, create at least one task for every named responsibility, including checklist, review, documentation, demo-prep, and acceptance work. "
+        "If a broad backlog prompt only says 'giao cho Huy, Minh, An' without mapping each person to a responsibility, treat those names as an assignee pool; create meaningful tasks for the feature scope and distribute them across the named people using workload/fit, instead of assigning everything to the first name. "
+        "When that broad assignee-pool prompt names several people and the scope is not a single tiny action, prefer enough tasks to cover the named people once. "
         "Use null start_date and due_date unless the user gives a deadline, date, weekday, tomorrow/today, or planning window. "
         "If the prompt includes dates like 'thứ 6 tuần sau', calculate due_date relative to current_time using Vietnam timezone; preserve explicit times such as 'trước 17h' or '17:30', and use 23:59:59 only when no time is specified. "
         "Keep Vietnamese titles concrete and concise; avoid vague titles and avoid inventing extra scope."
@@ -2486,6 +2636,13 @@ def parse_task_backlog_prompt(
 
     if _looks_like_single_task_prompt(prompt) and len(drafts) > 1:
         drafts = [_align_single_draft_with_prompt(_pick_single_requested_draft(drafts, prompt, members), prompt)]
+
+    drafts = _ensure_assignee_pool_task_count(
+        drafts,
+        prompt=prompt,
+        members=members,
+        member_ids=member_ids,
+    )
 
     drafts = _align_drafts_with_prompt_assignments(
         drafts,
