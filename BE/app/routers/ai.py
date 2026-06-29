@@ -1938,6 +1938,29 @@ def _lock_explicit_assignment_segments(
     return drafts
 
 
+def _apply_single_task_prompt_assignee(
+    draft: schemas.AITaskParseResponse,
+    *,
+    prompt: str,
+    members: list[dict],
+) -> schemas.AITaskParseResponse:
+    mentioned_ids = _mentioned_member_ids(prompt, members)
+    if len(mentioned_ids) != 1:
+        return draft
+
+    text = _strip_vietnamese_accents(prompt).lower()
+    has_assignment_phrase = bool(re.search(r"\b(giao|phan cong|assign)\s+cho\b", text))
+    if not has_assignment_phrase:
+        return draft
+
+    explicit_id = _explicit_assignee_for_draft(draft, prompt, members)
+    member_id = explicit_id if explicit_id in mentioned_ids else mentioned_ids[0]
+    member = next((m for m in members if m["id"] == member_id), None)
+    draft.assignee_id = member_id
+    draft.assignee_name = member["full_name"] if member else draft.assignee_name
+    return draft
+
+
 def _task_weight(draft: schemas.AITaskParseResponse, now_dt: datetime) -> float:
     weight = draft.estimated_hours if draft.estimated_hours is not None else 4.0
     weight += {"High": 4.0, "Medium": 2.0, "Low": 1.0}.get(draft.priority, 2.0)
@@ -2544,7 +2567,7 @@ def parse_task_prompt(
         if not fallback_drafts:
             raise exc
         draft = _ensure_draft_schedule(
-            [fallback_drafts[0]],
+            [_apply_single_task_prompt_assignee(fallback_drafts[0], prompt=prompt, members=members)],
             prompt=prompt,
             workload=workload,
             now_dt=now_dt,
@@ -2576,6 +2599,7 @@ def parse_task_prompt(
             raise HTTPException(status_code=502, detail="AI chua trich xuat duoc tieu de task")
         draft = fallback_drafts[0]
         draft.notes = "AI returned an unexpected structure; the internal fallback generated this draft."
+    draft = _apply_single_task_prompt_assignee(draft, prompt=prompt, members=members)
     return _ensure_draft_schedule([draft], prompt=prompt, workload=workload, now_dt=now_dt)[0]
 
 
