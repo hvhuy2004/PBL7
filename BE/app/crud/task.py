@@ -303,10 +303,15 @@ def update_task(db: Session, task: models.Task, data: schemas.TaskUpdate, user_i
         setattr(task, key, value)
 
     # Chỉ log tên các field thay đổi để tránh vượt VARCHAR(255)
-    changed_fields = ", ".join(actual_changed_fields)
-    _log(db, project_id=task.project_id, user_id=user_id,
-         action_type="UPDATED_TASK", entity_id=task.id,
-         new_value=changed_fields[:250])
+    loggable_fields = [
+        key for key in actual_changed_fields
+        if key not in {"order_index"}
+    ]
+    if loggable_fields:
+        changed_fields = ", ".join(loggable_fields)
+        _log(db, project_id=task.project_id, user_id=user_id,
+             action_type="UPDATED_TASK", entity_id=task.id,
+             new_value=changed_fields[:250])
 
     # Notify new assignee if assignee changed
     new_assignee_id = update_data.get('assignee_id')
@@ -323,7 +328,7 @@ def update_task(db: Session, task: models.Task, data: schemas.TaskUpdate, user_i
     else:
         meaningful_fields = [
             key for key in actual_changed_fields
-            if key not in {"checklist_total", "checklist_completed", "completed_at"}
+            if key not in {"order_index", "checklist_total", "checklist_completed", "completed_at"}
         ]
         if task.assignee_id and task.assignee_id != user_id and meaningful_fields:
             actor = db.query(models.User).filter(models.User.id == user_id).first()
