@@ -377,7 +377,8 @@ def create_checklist_item(
 
     _sync_checklist_counts(db, task)
     _log(db, project_id=task.project_id, user_id=user_id,
-         action_type="ADDED_CHECKLIST_ITEM", entity_id=item.id)
+         action_type="ADDED_CHECKLIST_ITEM", entity_id=item.id,
+         old_value=str(task.id))
 
     db.commit()
     db.refresh(item)
@@ -399,7 +400,7 @@ def update_checklist_item(
     _sync_checklist_counts(db, task)
     _log(db, project_id=task.project_id, user_id=user_id,
          action_type="UPDATED_CHECKLIST_ITEM", entity_id=item.id,
-         new_value=", ".join(update_data.keys())[:250])
+         old_value=str(task.id), new_value=", ".join(update_data.keys())[:250])
 
     db.commit()
     db.refresh(item)
@@ -417,7 +418,8 @@ def delete_checklist_item(
     db.flush()
     _sync_checklist_counts(db, task)
     _log(db, project_id=task.project_id, user_id=user_id,
-         action_type="DELETED_CHECKLIST_ITEM", entity_id=item.id)
+         action_type="DELETED_CHECKLIST_ITEM", entity_id=item.id,
+         old_value=str(task.id))
     db.commit()
 
 

@@ -45,6 +45,7 @@ function displayActivityText(value = '') {
 }
 
 function buildDescription(log) {
+  if (log.description) return displayActivityText(log.description);
   const meta = actionMeta(log.action_type);
   const actor = log.user_name || 'Thành viên';
   if (log.task_title) return `${actor} - ${meta.label.toLowerCase()} "${displayActivityText(log.task_title)}"`;
