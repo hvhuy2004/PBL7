@@ -1,3 +1,4 @@
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -37,12 +38,21 @@ TASK_ACTIONS = {
     "DELETED_CHECKLIST_ITEM",
 }
 
+DEMO_NOISE_PATTERN = re.compile(r"\bcodex\b.*\b(prod|crud|final)\b", re.IGNORECASE)
+
+
+def _is_demo_noise_log(log: models.ActivityLog, task_title: str | None) -> bool:
+    """Hide noisy production CRUD smoke-test entries from the user-facing timeline."""
+    values = [task_title, log.old_value, log.new_value]
+    return any(DEMO_NOISE_PATTERN.search(str(value or "")) for value in values)
+
 
 @router.get("/project/{project_id}")
 def get_project_logs(
     project_id: int,
     task_id: Optional[int] = Query(None, description="Lọc log theo task cụ thể"),
     limit: int = Query(100, le=200),
+    include_demo_noise: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(require_project_member),
 ):
@@ -61,6 +71,9 @@ def get_project_logs(
         if log.action_type in TASK_ACTIONS:
             task = db.query(models.Task).filter(models.Task.id == log.entity_id).first()
             task_title = task.title if task else f"Task #{log.entity_id}"
+
+        if not include_demo_noise and _is_demo_noise_log(log, task_title):
+            continue
 
         action_label = ACTION_LABELS.get(log.action_type, log.action_type)
         try:

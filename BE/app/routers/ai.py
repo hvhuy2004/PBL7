@@ -558,12 +558,16 @@ def _call_ai_json(
     max_tokens: int | None = None,
     *,
     require_github_models: bool = False,
+    github_model_env: str = "GITHUB_MODELS_TASK_MODEL",
+    github_timeout_env: str = "GITHUB_MODELS_TASK_TIMEOUTS",
+    github_model_fallback: list[str] | None = None,
+    github_timeout_fallback: str = "25",
 ) -> dict:
     github_key = _env("GITHUB_MODELS_TOKEN") or _env("GITHUB_TOKEN")
     github_exc = None
     if github_key:
-        models = _split_model_list(_env("GITHUB_MODELS_TASK_MODEL"), DEFAULT_GITHUB_MODELS)
-        timeouts = _split_timeout_list(_env("GITHUB_MODELS_TASK_TIMEOUTS") or "25", len(models))
+        models = _split_model_list(_env(github_model_env), github_model_fallback or DEFAULT_GITHUB_MODELS)
+        timeouts = _split_timeout_list(_env(github_timeout_env) or github_timeout_fallback, len(models))
         logger.info("AI GitHub Models configured: %s", ", ".join(models))
         for model, timeout_seconds in zip(models, timeouts):
             try:
@@ -2792,7 +2796,11 @@ def summarize_project_status(
         parsed = _call_ai_json(
             system_prompt,
             user_prompt,
-            max_tokens=int(_env("AI_SUMMARY_MAX_TOKENS", "900")),
+            max_tokens=int(_env("AI_SUMMARY_MAX_TOKENS", "650")),
+            github_model_env="GITHUB_MODELS_SUMMARY_MODEL",
+            github_timeout_env="GITHUB_MODELS_SUMMARY_TIMEOUTS",
+            github_model_fallback=["openai/gpt-4o", "openai/gpt-4.1-mini"],
+            github_timeout_fallback="12,8",
         )
         if isinstance(parsed, dict):
             model_used = parsed.pop("_ai_model", None)
